@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -20,17 +21,10 @@ var sentryMiddleware func(http.Handler) http.Handler
 
 var db *sql.DB
 
-var fortuneTemplate = template.Must(template.New("fortunes").Parse(`<!DOCTYPE html>
-<html>
-<head><title>Fortunes</title></head>
-<body>
-<table>
-<tr><th>id</th><th>message</th></tr>
-{{range .}}<tr><td>{{.ID}}</td><td>{{.Message}}</td></tr>
-{{end}}
-</table>
-</body>
-</html>`))
+//go:embed fortunes.html
+var fortuneHTML string
+
+var fortuneTemplate = template.Must(template.New("fortunes").Parse(fortuneHTML))
 
 type World struct {
 	ID           int `json:"id"`

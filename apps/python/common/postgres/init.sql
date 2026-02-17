@@ -29,5 +29,5 @@ INSERT INTO fortune (id, message) VALUES
 (8, 'A list is only as strong as its weakest link. — Donald Knuth'),
 (9, 'Feature: A bug with seniority.'),
 (10, 'Computers make very fast, very accurate mistakes.'),
-(11, '&lt;script&gt;alert(&quot;This should not be displayed in a browser alert box.&quot;);&lt;/script&gt;'),
+(11, '<script>alert("This should not be displayed in a browser alert box.");</script>'),
 (12, 'フレームワークのベンチマーク');

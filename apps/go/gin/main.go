@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"html/template"
 	"log"
@@ -20,17 +21,10 @@ var sentryMiddleware gin.HandlerFunc
 
 var db *sql.DB
 
-var fortuneTemplate = template.Must(template.New("fortunes").Parse(`<!DOCTYPE html>
-<html>
-<head><title>Fortunes</title></head>
-<body>
-<table>
-<tr><th>id</th><th>message</th></tr>
-{{range .}}<tr><td>{{.ID}}</td><td>{{.Message}}</td></tr>
-{{end}}
-</table>
-</body>
-</html>`))
+//go:embed fortunes.html
+var fortuneHTML string
+
+var fortuneTemplate = template.Must(template.New("fortunes").Parse(fortuneHTML))
 
 type World struct {
 	ID           int `json:"id"`
@@ -149,6 +143,5 @@ func fortunesHandler(c *gin.Context) {
 		return fortunes[i].Message < fortunes[j].Message
 	})
 
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	fortuneTemplate.Execute(c.Writer, fortunes)
+	c.HTML(http.StatusOK, "fortunes", fortunes)
 }
