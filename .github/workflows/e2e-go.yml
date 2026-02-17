@@ -70,7 +70,8 @@ jobs:
       - name: Show results summary
         if: always()
         run: |
-          RESULTS_FILE=$(find results/ -name 'results.json' -type f | head -1)
+          # The runner writes aggregated results at depth 2; deeper files are raw vegeta NDJSON
+          RESULTS_FILE=$(find results/ -maxdepth 2 -name 'results.json' -type f | head -1)
           if [ -n "$RESULTS_FILE" ]; then
             python3 -c "
           import json, pathlib
