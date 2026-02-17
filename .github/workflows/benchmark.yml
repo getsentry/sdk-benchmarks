@@ -62,6 +62,9 @@ jobs:
           # Runner writes to results/{lang}-{framework}/results.json
           RESULTS_FILE=$(find results/ -name 'results.json' -type f | head -1)
           echo "path=${RESULTS_FILE}" >> "$GITHUB_OUTPUT"
+          # Sanitize app name for artifact upload (slashes not allowed)
+          ARTIFACT_NAME="benchmark-results-$(echo '${{ inputs.app }}' | tr '/' '-')"
+          echo "artifact-name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Parse results
         id: results
@@ -93,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: benchmark-results-${{ inputs.app }}
+          name: ${{ steps.find-results.outputs.artifact-name }}
           path: results/
 
       - name: Post PR comment
