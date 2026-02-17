@@ -30,6 +30,7 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Python apps
@@ -70,5 +71,12 @@ jobs:
             context: apps/go/echo
     steps:
       - uses: actions/checkout@v4
+      - name: Render SDK requirements templates
+        run: |
+          # Instrumented Dockerfiles need requirements-sentry.txt rendered from .tmpl
+          for tmpl in $(find apps -name 'requirements-sentry.txt.tmpl' 2>/dev/null); do
+            dir=$(dirname "$tmpl")
+            sed 's/=={{ sdk_version }}//' "$tmpl" > "$dir/requirements-sentry.txt"
+          done
       - run: docker build -f ${{ matrix.dockerfile }} ${{ matrix.context }}
         name: Build ${{ matrix.name }}
