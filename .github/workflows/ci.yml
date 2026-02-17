@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/
+
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Python apps
+          - name: django-baseline
+            dockerfile: apps/python/django/Dockerfile.baseline
+            context: apps/python/django
+          - name: django-instrumented
+            dockerfile: apps/python/django/Dockerfile.instrumented
+            context: apps/python/django
+          # Tools
+          - name: fakerelay
+            dockerfile: tools/fakerelay/Dockerfile
+            context: tools/fakerelay
+          - name: loadgen
+            dockerfile: tools/loadgen/Dockerfile
+            context: tools/loadgen
+          - name: postgres
+            dockerfile: apps/python/common/postgres/Dockerfile
+            context: apps/python/common/postgres
+          # Go apps
+          - name: go-net-http-baseline
+            dockerfile: apps/go/net-http/Dockerfile.baseline
+            context: apps/go/net-http
+          - name: go-net-http-instrumented
+            dockerfile: apps/go/net-http/Dockerfile.instrumented
+            context: apps/go/net-http
+          - name: go-gin-baseline
+            dockerfile: apps/go/gin/Dockerfile.baseline
+            context: apps/go/gin
+          - name: go-gin-instrumented
+            dockerfile: apps/go/gin/Dockerfile.instrumented
+            context: apps/go/gin
+          - name: go-echo-baseline
+            dockerfile: apps/go/echo/Dockerfile.baseline
+            context: apps/go/echo
+          - name: go-echo-instrumented
+            dockerfile: apps/go/echo/Dockerfile.instrumented
+            context: apps/go/echo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render SDK requirements templates
+        run: |
+          # Instrumented Dockerfiles need requirements-sentry.txt rendered from .tmpl
+          for tmpl in $(find apps -name 'requirements-sentry.txt.tmpl' 2>/dev/null); do
+            dir=$(dirname "$tmpl")
+            sed 's/=={{ sdk_version }}//' "$tmpl" > "$dir/requirements-sentry.txt"
+          done
+      - run: docker build -f ${{ matrix.dockerfile }} ${{ matrix.context }}
+        name: Build ${{ matrix.name }}
