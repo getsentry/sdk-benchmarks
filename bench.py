@@ -18,7 +18,13 @@ def cli():
 @click.option("--output-dir", default="results/", help="Directory to write results to.")
 def run(app, sdk_version, iterations, output_dir):
     """Run benchmarks for an APP (e.g. 'python/django')."""
-    click.echo("Not implemented yet")
+    import logging
+
+    from lib.runner import run_benchmark
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    results = run_benchmark(app, sdk_version, iterations=iterations, output_dir=output_dir)
+    click.echo(f"Benchmark complete. {len(results.get('iterations', []))} iterations recorded.")
 
 
 @cli.command()

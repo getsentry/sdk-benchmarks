@@ -16,3 +16,6 @@ results/
 
 # Ruff
 .ruff_cache/
+
+# Jetbrains
+.idea

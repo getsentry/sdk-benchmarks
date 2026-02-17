@@ -1,0 +1,43 @@
+name: Test Benchmark (smoke test)
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to benchmark"
+        default: "python/django"
+      sdk-version:
+        description: "SDK version"
+        default: "2.0.0"
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bench CLI
+        run: pip install -e .
+
+      - name: Verify CLI works
+        run: |
+          bench --version
+          bench --help
+          bench run --help
+          bench post-comment --help
+
+      - name: Verify bench run invokes runner
+        run: |
+          # Run with a non-existent config to verify the runner is wired up
+          # (should fail with a config-not-found error, NOT "Not implemented yet")
+          output=$(bench run python/django --sdk-version=2.0.0 --iterations=1 2>&1 || true)
+          if echo "$output" | grep -q "Not implemented yet"; then
+            echo "FAIL: bench run is still a stub"
+            exit 1
+          fi
+          echo "OK: bench run is wired to the runner"
+          echo "Output: $output"
