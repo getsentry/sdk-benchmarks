@@ -104,13 +104,15 @@ func dbHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, world)
 }
 
+const maxQueries = 500
+
 func queriesHandler(c *gin.Context) {
 	n, err := strconv.Atoi(c.DefaultQuery("queries", "1"))
 	if err != nil || n < 1 {
 		n = 1
 	}
-	if n > 500 {
-		n = 500
+	if n > maxQueries {
+		n = maxQueries
 	}
 
 	worlds := make([]World, n)

@@ -105,13 +105,15 @@ func dbHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(world)
 }
 
+const maxQueries = 500
+
 func queriesHandler(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.Atoi(r.URL.Query().Get("queries"))
 	if err != nil || n < 1 {
 		n = 1
 	}
-	if n > 500 {
-		n = 500
+	if n > maxQueries {
+		n = maxQueries
 	}
 
 	worlds := make([]World, n)
