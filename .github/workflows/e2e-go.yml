@@ -45,4 +45,4 @@ jobs:
       app: ${{ matrix.app }}
       sdk-version: ${{ needs.resolve-version.outputs.version }}
       iterations: 1
-      post-comment: false
+      post-comment: true
