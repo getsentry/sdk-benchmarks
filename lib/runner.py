@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import subprocess
 import threading
@@ -222,6 +223,13 @@ def run_benchmark(
             result = run_variant(config, variant, i, results_base)
             all_results["iterations"].append(result)
 
+    # Compute summary with overhead metrics
+    all_results["summary"] = _compute_summary(all_results["iterations"])
+    all_results["load"] = {
+        "rps": config.get("load", {}).get("rps"),
+        "duration": config.get("load", {}).get("duration"),
+    }
+
     # Write aggregated results
     results_path = os.path.join(results_base, "results.json")
     with open(results_path, "w") as f:
@@ -229,6 +237,59 @@ def run_benchmark(
 
     logger.info("Results written to %s", results_path)
     return all_results
+
+
+def _percentile(sorted_values: list[float], p: float) -> float:
+    """Compute the p-th percentile from a sorted list of values."""
+    if not sorted_values:
+        return 0.0
+    k = (len(sorted_values) - 1) * (p / 100.0)
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        return sorted_values[int(k)]
+    return sorted_values[f] * (c - k) + sorted_values[c] * (k - f)
+
+
+def _extract_latencies(iterations: list[dict], variant: str) -> list[float]:
+    """Extract all latency values (in nanoseconds) for a given variant."""
+    latencies = []
+    for it in iterations:
+        if it.get("variant") != variant:
+            continue
+        for req in it.get("vegeta_results") or []:
+            latencies.append(req["latency"])
+    return latencies
+
+
+def _compute_summary(iterations: list[dict]) -> dict:
+    """Compute overhead summary by comparing baseline vs instrumented latencies."""
+    baseline_latencies = sorted(_extract_latencies(iterations, "baseline"))
+    instrumented_latencies = sorted(_extract_latencies(iterations, "instrumented"))
+
+    if not baseline_latencies or not instrumented_latencies:
+        logger.warning("Missing baseline or instrumented data for summary computation")
+        return {"overhead": {}, "regression": False}
+
+    overhead = {}
+    regression = False
+    for name, p in [("p50", 50), ("p90", 90), ("p95", 95), ("p99", 99)]:
+        base_val = _percentile(baseline_latencies, p)
+        inst_val = _percentile(instrumented_latencies, p)
+        if base_val > 0:
+            pct = (inst_val - base_val) / base_val * 100.0
+            overhead[name] = round(pct, 2)
+
+    base_mean = sum(baseline_latencies) / len(baseline_latencies)
+    inst_mean = sum(instrumented_latencies) / len(instrumented_latencies)
+    if base_mean > 0:
+        overhead["mean"] = round((inst_mean - base_mean) / base_mean * 100.0, 2)
+
+    # Flag regression if p99 overhead exceeds 10%
+    if overhead.get("p99", 0) > 10:
+        regression = True
+
+    return {"overhead": overhead, "regression": regression}
 
 
 def _prepare_sdk_version(config: dict, sdk_version: str) -> None:
