@@ -1,0 +1,96 @@
+name: "E2E benchmarks"
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "Language to benchmark (auto-detected from repo name if not provided)"
+        required: false
+        type: string
+      sdk-version:
+        description: "SDK version (resolves latest if not provided)"
+        required: false
+        type: string
+      iterations:
+        description: "Number of benchmark iterations"
+        required: false
+        type: number
+        default: 1
+      post-comment:
+        description: "Post results as a PR comment"
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      language:
+        description: "Language to benchmark (e.g. go, python)"
+        required: true
+      sdk-version:
+        description: "SDK version (e.g. 0.42.0 or latest)"
+        default: "latest"
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.apps }}
+      sdk-version: ${{ steps.version.outputs.sdk-version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bench CLI
+        run: pip install -e .
+
+      - name: Detect language
+        id: lang
+        env:
+          INPUT_LANGUAGE: ${{ inputs.language }}
+          CALLER_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$INPUT_LANGUAGE" ]; then
+            echo "language=$INPUT_LANGUAGE" >> "$GITHUB_OUTPUT"
+          else
+            # Extract language from repo name: getsentry/sentry-go → go
+            REPO_NAME="${CALLER_REPO##*/}"
+            LANGUAGE="${REPO_NAME#sentry-}"
+            echo "language=$LANGUAGE" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve SDK version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.sdk-version }}
+          LANGUAGE: ${{ steps.lang.outputs.language }}
+        run: |
+          if [ -n "$INPUT_VERSION" ] && [ "$INPUT_VERSION" != "latest" ]; then
+            echo "sdk-version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(bench resolve-version "$LANGUAGE")
+            echo "sdk-version=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build matrix
+        id: matrix
+        env:
+          LANGUAGE: ${{ steps.lang.outputs.language }}
+        run: |
+          APPS=$(bench list-apps "$LANGUAGE")
+          echo "apps=$APPS" >> "$GITHUB_OUTPUT"
+
+  bench:
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/benchmark.yml
+    with:
+      app: ${{ matrix.app }}
+      sdk-version: ${{ needs.discover.outputs.sdk-version }}
+      iterations: ${{ inputs.iterations || 1 }}
+      post-comment: ${{ inputs.post-comment == '' && true || inputs.post-comment }}

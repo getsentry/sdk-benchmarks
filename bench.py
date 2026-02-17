@@ -1,14 +1,70 @@
 """CLI entrypoint for sdk-benchmarks."""
 
+import json
+from pathlib import Path
+from urllib.request import urlopen
+
 import click
+import yaml
 
 __version__ = "0.1.0"
+
+CONFIGS_DIR = Path(__file__).parent / "configs"
+
+VERSION_RESOLVERS = {
+    "go": {
+        "url": "https://proxy.golang.org/github.com/getsentry/sentry-go/@latest",
+        "parse": lambda data: json.loads(data)["Version"].lstrip("v"),
+    },
+    "python": {
+        "url": "https://pypi.org/pypi/sentry-sdk/json",
+        "parse": lambda data: json.loads(data)["info"]["version"],
+    },
+}
+
+
+def _list_apps(language: str) -> list[str]:
+    """Scan configs/*.yaml and return app names matching the given language."""
+    apps = []
+    for config_path in sorted(CONFIGS_DIR.glob("*.yaml")):
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        if config.get("language") == language:
+            apps.append(f"{config['language']}/{config['framework']}")
+    return apps
+
+
+def _resolve_version(language: str) -> str:
+    """Resolve the latest Sentry SDK version for a language."""
+    resolver = VERSION_RESOLVERS.get(language)
+    if not resolver:
+        raise click.ClickException(f"No version resolver configured for language: {language}")
+
+    with urlopen(resolver["url"]) as resp:
+        data = resp.read().decode()
+    return resolver["parse"](data)
 
 
 @click.group()
 @click.version_option(version=__version__)
 def cli():
     """Benchmark suite for Sentry SDKs."""
+
+
+@cli.command("list-apps")
+@click.argument("language")
+def list_apps(language):
+    """List benchmark apps for a LANGUAGE (e.g. 'go', 'python')."""
+    apps = _list_apps(language)
+    click.echo(json.dumps(apps))
+
+
+@cli.command("resolve-version")
+@click.argument("language")
+def resolve_version(language):
+    """Resolve the latest Sentry SDK version for a LANGUAGE."""
+    version = _resolve_version(language)
+    click.echo(version)
 
 
 @cli.command()
