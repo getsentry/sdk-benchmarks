@@ -17,27 +17,11 @@ on:
         default: "latest"
 
 jobs:
-  e2e:
+  resolve-version:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [go/net-http, go/gin, go/echo]
+    outputs:
+      version: ${{ steps.sdk.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: false
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install bench CLI
-        run: pip install -e .
-
       - name: Resolve SDK version
         id: sdk
         env:
@@ -50,44 +34,15 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Sanitize app name
-        id: meta
-        env:
-          APP: ${{ matrix.app }}
-        run: |
-          echo "artifact-name=e2e-results-$(echo "$APP" | tr '/' '-')" >> "$GITHUB_OUTPUT"
-
-      - name: Run benchmark
-        env:
-          BENCH_APP: ${{ matrix.app }}
-          BENCH_SDK_VERSION: ${{ steps.sdk.outputs.version }}
-        run: |
-          bench run "$BENCH_APP" \
-            --sdk-version="$BENCH_SDK_VERSION" \
-            --iterations=1 \
-            --output-dir=results/
-
-      - name: Show results summary
-        if: always()
-        run: |
-          # The runner writes aggregated results at depth 2; deeper files are raw vegeta NDJSON
-          RESULTS_FILE=$(find results/ -maxdepth 2 -name 'results.json' -type f | head -1)
-          if [ -n "$RESULTS_FILE" ]; then
-            python3 -c "
-          import json, pathlib
-          data = json.loads(pathlib.Path('$RESULTS_FILE').read_text())
-          print(f\"App: {data['app']}\")
-          print(f\"SDK version: {data['sdk_version']}\")
-          print(f\"Iterations: {len(data.get('iterations', []))}\")
-          "
-          else
-            echo "No results file found"
-            ls -lR results/ 2>/dev/null || echo "results/ directory not found"
-          fi
-
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ${{ steps.meta.outputs.artifact-name }}
-          path: results/
+  bench:
+    needs: resolve-version
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [go/net-http, go/gin, go/echo]
+    uses: ./.github/workflows/benchmark.yml
+    with:
+      app: ${{ matrix.app }}
+      sdk-version: ${{ needs.resolve-version.outputs.version }}
+      iterations: 1
+      post-comment: false
