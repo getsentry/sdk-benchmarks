@@ -1,0 +1,29 @@
+language: python
+framework: django
+app_dir: apps/python/django
+
+endpoints:
+  - name: json
+    path: /json
+  - name: db-single
+    path: /db
+  - name: db-multi
+    path: /queries?queries=10
+  - name: fortunes
+    path: /fortunes
+
+load:
+  rps: 100
+  duration: 30s
+  warmup: 10s
+  connections: 10
+
+iterations: 10
+
+resources:
+  app:
+    cpus: "2"
+    memory: "512m"
+  postgres:
+    cpus: "1"
+    memory: "256m"

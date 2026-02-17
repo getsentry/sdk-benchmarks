@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sdk-benchmarks"
 version = "0.1.0"
@@ -18,6 +22,9 @@ dev = [
 
 [project.scripts]
 bench = "bench:cli"
+
+[tool.setuptools.packages.find]
+include = ["lib*"]
 
 [tool.ruff]
 line-length = 100
