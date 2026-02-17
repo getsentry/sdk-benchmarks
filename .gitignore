@@ -1,0 +1,18 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+
+# Results
+results/
+
+# Type checking
+.mypy_cache/
+
+# Ruff
+.ruff_cache/

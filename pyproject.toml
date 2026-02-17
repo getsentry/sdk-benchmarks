@@ -1,0 +1,23 @@
+[project]
+name = "sdk-benchmarks"
+version = "0.1.0"
+description = "Benchmark suite for Sentry SDKs"
+requires-python = ">=3.10"
+dependencies = [
+    "click",
+    "jinja2",
+    "pyyaml",
+    "scipy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+bench = "bench:cli"
+
+[tool.ruff]
+line-length = 100
