@@ -2,7 +2,7 @@ name: "E2E: Go benchmarks"
 
 on:
   pull_request:
-    branches: [main, feat/github-actions]
+    branches: [main]
     paths:
       - "apps/go/**"
       - "configs/go-*.yaml"
