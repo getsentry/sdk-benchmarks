@@ -1,0 +1,71 @@
+services:
+  postgres:
+    build:
+      context: {{ project_root }}/apps/{{ language }}/common/postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmarkdbuser -d hello_world"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+{% if config.resources is defined and config.resources.postgres is defined %}
+    cpus: {{ config.resources.postgres.cpus }}
+    mem_limit: {{ config.resources.postgres.memory }}
+{% endif %}
+    networks:
+      - bench
+
+  app:
+    build:
+      context: {{ project_root }}/apps/{{ language }}/{{ framework }}
+      dockerfile: Dockerfile.{{ variant }}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% if variant == "instrumented" %}
+      fakerelay:
+        condition: service_started
+{% endif %}
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: hello_world
+      DB_USER: benchmarkdbuser
+      DB_PASS: benchmarkdbpass
+{% if variant == "instrumented" %}
+      SENTRY_DSN: http://sentry@fakerelay:5000/1
+{% endif %}
+{% if config.resources is defined and config.resources.app is defined %}
+    cpus: {{ config.resources.app.cpus }}
+    mem_limit: {{ config.resources.app.memory }}
+{% endif %}
+    networks:
+      - bench
+
+  loadgen:
+    build:
+      context: {{ project_root }}/tools/loadgen
+    depends_on:
+      - app
+    environment:
+      TARGET_HOST: app:8080
+      RPS: "{{ config.load.rps }}"
+      DURATION: "{{ config.load.duration }}"
+      WARMUP: "{{ config.load.warmup }}"
+      ENDPOINTS: "{{ config.endpoints | map(attribute='path') | join(',') }}"
+      CONNECTIONS: "{{ config.load.connections }}"
+    volumes:
+      - {{ results_dir }}:/results
+    networks:
+      - bench
+
+{% if variant == "instrumented" %}
+  fakerelay:
+    build:
+      context: {{ project_root }}/tools/fakerelay
+    networks:
+      - bench
+{% endif %}
+
+networks:
+  bench:
+    driver: bridge
