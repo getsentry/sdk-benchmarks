@@ -1,0 +1,90 @@
+version: "3.8"
+
+services:
+  postgres:
+    build:
+      context: {{ app_dir }}/../common/postgres/
+    environment:
+      POSTGRES_DB: hello_world
+      POSTGRES_USER: benchmarkdbuser
+      POSTGRES_PASSWORD: benchmarkdbpass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmarkdbuser -d hello_world"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ resources.postgres.cpus }}"
+          memory: "{{ resources.postgres.memory }}"
+    networks:
+      - bench
+
+  app:
+    build:
+      context: {{ app_dir }}/
+      dockerfile: Dockerfile.{{ variant }}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% if variant == "instrumented" %}
+      fakerelay:
+        condition: service_started
+{% endif %}
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: hello_world
+      DB_USER: benchmarkdbuser
+      DB_PASS: benchmarkdbpass
+{% if variant == "instrumented" %}
+      SENTRY_DSN: http://sentry@fakerelay:5000/1
+{% endif %}
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ resources.app.cpus }}"
+          memory: "{{ resources.app.memory }}"
+    networks:
+      - bench
+
+  loadgen:
+    build:
+      context: tools/loadgen/
+    depends_on:
+      app:
+        condition: service_started
+    environment:
+      TARGET_HOST: app:8080
+      RPS: "{{ load.rps }}"
+      DURATION: "{{ load.duration }}"
+      WARMUP: "{{ load.warmup }}"
+      ENDPOINTS: "{{ endpoints | join(',') }}"
+      CONNECTIONS: "{{ load.connections }}"
+    volumes:
+      - ./results:/results
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ resources.app.cpus }}"
+          memory: "{{ resources.app.memory }}"
+    networks:
+      - bench
+
+{% if variant == "instrumented" %}
+  fakerelay:
+    build:
+      context: tools/fakerelay/
+    ports:
+      - "5000:5000"
+    networks:
+      - bench
+{% endif %}
+
+networks:
+  bench:
+    driver: bridge
