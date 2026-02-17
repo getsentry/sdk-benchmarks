@@ -34,7 +34,7 @@ def format_comment(results: dict) -> str:
 
     for metric in ["p50", "p90", "p95", "p99", "mean"]:
         value = overhead.get(metric)
-        if value is not None:
+        if isinstance(value, (int, float)):
             lines.append(f"| {metric} | {value:+.2f}% |")
 
     endpoints = results.get("endpoints", {})
