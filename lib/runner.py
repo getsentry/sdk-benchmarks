@@ -234,6 +234,11 @@ def run_benchmark(
 def _prepare_sdk_version(config: dict, sdk_version: str) -> None:
     """Template the SDK version into requirements files."""
     app_dir = PROJECT_ROOT / config["app_dir"]
+    language = config.get("language", "")
+
+    if language == "go":
+        _prepare_go_sdk_version(app_dir, sdk_version)
+        return
 
     # Python: render requirements-sentry.txt from template
     tmpl_path = app_dir / "requirements-sentry.txt.tmpl"
@@ -245,3 +250,47 @@ def _prepare_sdk_version(config: dict, sdk_version: str) -> None:
         with open(output_path, "w") as f:
             f.write(rendered)
         logger.info("Rendered %s with sdk_version=%s", output_path, sdk_version)
+
+
+def _prepare_go_sdk_version(app_dir: Path, sdk_version: str) -> None:
+    """Update sentry-go module versions in a Go app's go.mod."""
+    go_mod = app_dir / "go.mod"
+    if not go_mod.exists():
+        return
+
+    # Find all sentry-go modules referenced in go.mod
+    with open(go_mod) as f:
+        content = f.read()
+
+    sentry_modules = []
+    for line in content.splitlines():
+        line = line.strip()
+        # Match lines like: github.com/getsentry/sentry-go v0.42.0
+        # or: github.com/getsentry/sentry-go/gin v0.42.0
+        if "github.com/getsentry/sentry-go" in line and not line.startswith("module"):
+            parts = line.split()
+            if parts:
+                mod = parts[0]
+                if mod.startswith("github.com/getsentry/sentry-go"):
+                    sentry_modules.append(mod)
+
+    if not sentry_modules:
+        logger.warning("No sentry-go modules found in %s", go_mod)
+        return
+
+    # Use go get to update each sentry-go module to the target version
+    version_spec = f"@v{sdk_version}" if sdk_version != "latest" and not sdk_version.startswith("v") else f"@{sdk_version}"
+    get_args = [f"{mod}{version_spec}" for mod in sentry_modules]
+
+    logger.info("Updating sentry-go modules in %s: %s", app_dir, get_args)
+    subprocess.run(
+        ["go", "get"] + get_args,
+        cwd=str(app_dir),
+        check=True,
+    )
+    subprocess.run(
+        ["go", "mod", "tidy"],
+        cwd=str(app_dir),
+        check=True,
+    )
+    logger.info("Updated go.mod in %s to sentry-go %s", app_dir, sdk_version)
