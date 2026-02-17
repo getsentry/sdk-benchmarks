@@ -127,3 +127,7 @@ class TestInstrumentedVariant:
     def test_fakerelay_on_bench_network(self):
         fakerelay = self.compose["services"]["fakerelay"]
         assert "bench" in fakerelay["networks"]
+
+    def test_app_depends_on_fakerelay(self):
+        app = self.compose["services"]["app"]
+        assert "fakerelay" in app["depends_on"]

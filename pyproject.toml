@@ -23,6 +23,9 @@ dev = [
 [project.scripts]
 bench = "bench:cli"
 
+[tool.setuptools]
+py-modules = ["bench"]
+
 [tool.setuptools.packages.find]
 include = ["lib*"]
 

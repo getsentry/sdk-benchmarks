@@ -21,6 +21,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+{% if variant == "instrumented" %}
+      fakerelay:
+        condition: service_started
+{% endif %}
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
