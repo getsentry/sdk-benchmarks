@@ -1,0 +1,102 @@
+name: Benchmark
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: "App to benchmark (e.g. python/django, go/net-http)"
+        required: true
+        type: string
+      sdk-version:
+        description: "SDK version or install specifier to benchmark"
+        required: true
+        type: string
+      iterations:
+        description: "Number of benchmark iterations"
+        required: false
+        type: number
+        default: 5
+      post-comment:
+        description: "Post results as a PR comment"
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      overhead-p50:
+        description: "P50 latency overhead percentage"
+        value: ${{ jobs.bench.outputs.overhead-p50 }}
+      overhead-p99:
+        description: "P99 latency overhead percentage"
+        value: ${{ jobs.bench.outputs.overhead-p99 }}
+      regression:
+        description: "Whether a regression was detected"
+        value: ${{ jobs.bench.outputs.regression }}
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    outputs:
+      overhead-p50: ${{ steps.results.outputs.overhead-p50 }}
+      overhead-p99: ${{ steps.results.outputs.overhead-p99 }}
+      regression: ${{ steps.results.outputs.regression }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bench CLI
+        run: pip install -e .
+
+      - name: Run benchmark
+        run: |
+          bench run ${{ inputs.app }} \
+            --sdk-version="${{ inputs.sdk-version }}" \
+            --iterations=${{ inputs.iterations }} \
+            --output-dir=results/
+
+      - name: Parse results
+        id: results
+        run: |
+          if [ -f results/results.json ]; then
+            echo "overhead-p50=$(python -c "
+          import json
+          with open('results/results.json') as f:
+              data = json.load(f)
+          overhead = data.get('summary', {}).get('overhead', {})
+          print(overhead.get('p50', 'N/A'))
+          ")" >> "$GITHUB_OUTPUT"
+            echo "overhead-p99=$(python -c "
+          import json
+          with open('results/results.json') as f:
+              data = json.load(f)
+          overhead = data.get('summary', {}).get('overhead', {})
+          print(overhead.get('p99', 'N/A'))
+          ")" >> "$GITHUB_OUTPUT"
+            echo "regression=$(python -c "
+          import json
+          with open('results/results.json') as f:
+              data = json.load(f)
+          print(str(data.get('summary', {}).get('regression', False)).lower())
+          ")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results-${{ inputs.app }}
+          path: results/
+
+      - name: Post PR comment
+        if: inputs.post-comment && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f results/report.md ]; then
+            bench post-comment \
+              --repo="${{ github.repository }}" \
+              --pr="${{ github.event.pull_request.number }}" \
+              --results-file=results/results.json
+          fi
