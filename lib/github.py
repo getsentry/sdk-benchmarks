@@ -1,5 +1,7 @@
 """GitHub integration — posting results as PR comments and managing artifacts."""
 
+from __future__ import annotations
+
 import json
 import subprocess
 
@@ -42,13 +44,11 @@ def format_comment(results: dict) -> str:
         lines.append("|----------|-------------|-------------|-------------|-------------|")
         for name, data in endpoints.items():
             ep_overhead = data.get("overhead", {})
-            lines.append(
-                f"| {name} "
-                f"| {ep_overhead.get('p50', 'N/A'):+.2f}% "
-                f"| {ep_overhead.get('p99', 'N/A'):+.2f}% "
-                f"| {ep_overhead.get('cpu', 'N/A'):+.2f}% "
-                f"| {ep_overhead.get('memory', 'N/A'):+.2f}% |"
-            )
+            cols = []
+            for key in ("p50", "p99", "cpu", "memory"):
+                val = ep_overhead.get(key)
+                cols.append(f"{val:+.2f}%" if isinstance(val, (int, float)) else "N/A")
+            lines.append(f"| {name} | {' | '.join(cols)} |")
 
     lines.extend([
         "",

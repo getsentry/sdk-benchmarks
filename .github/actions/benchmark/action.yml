@@ -49,25 +49,27 @@ runs:
           --iterations=${{ inputs.iterations }} \
           --output-dir=results/
 
-        # Parse results into outputs
-        if [ -f results/results.json ]; then
+        # Runner writes to results/{lang}-{framework}/results.json
+        RESULTS_FILE=$(find results/ -name 'results.json' -type f | head -1)
+        if [ -n "$RESULTS_FILE" ]; then
+          echo "results-file=${RESULTS_FILE}" >> "$GITHUB_OUTPUT"
           echo "overhead-p50=$(python -c "
         import json
-        with open('results/results.json') as f:
+        with open('${RESULTS_FILE}') as f:
             data = json.load(f)
         overhead = data.get('summary', {}).get('overhead', {})
         print(overhead.get('p50', 'N/A'))
         ")" >> "$GITHUB_OUTPUT"
           echo "overhead-p99=$(python -c "
         import json
-        with open('results/results.json') as f:
+        with open('${RESULTS_FILE}') as f:
             data = json.load(f)
         overhead = data.get('summary', {}).get('overhead', {})
         print(overhead.get('p99', 'N/A'))
         ")" >> "$GITHUB_OUTPUT"
           echo "regression=$(python -c "
         import json
-        with open('results/results.json') as f:
+        with open('${RESULTS_FILE}') as f:
             data = json.load(f)
         print(str(data.get('summary', {}).get('regression', False)).lower())
         ")" >> "$GITHUB_OUTPUT"
@@ -86,9 +88,10 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        if [ -f results/results.json ]; then
+        RESULTS_FILE="${{ steps.bench.outputs.results-file }}"
+        if [ -n "$RESULTS_FILE" ]; then
           bench post-comment \
             --repo="${{ github.repository }}" \
             --pr="${{ github.event.pull_request.number }}" \
-            --results-file=results/results.json
+            --results-file="$RESULTS_FILE"
         fi

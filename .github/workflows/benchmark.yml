@@ -56,31 +56,38 @@ jobs:
             --iterations=${{ inputs.iterations }} \
             --output-dir=results/
 
+      - name: Find results file
+        id: find-results
+        run: |
+          # Runner writes to results/{lang}-{framework}/results.json
+          RESULTS_FILE=$(find results/ -name 'results.json' -type f | head -1)
+          echo "path=${RESULTS_FILE}" >> "$GITHUB_OUTPUT"
+
       - name: Parse results
         id: results
+        if: steps.find-results.outputs.path != ''
         run: |
-          if [ -f results/results.json ]; then
-            echo "overhead-p50=$(python -c "
+          RESULTS_FILE="${{ steps.find-results.outputs.path }}"
+          echo "overhead-p50=$(python -c "
           import json
-          with open('results/results.json') as f:
+          with open('$RESULTS_FILE') as f:
               data = json.load(f)
           overhead = data.get('summary', {}).get('overhead', {})
           print(overhead.get('p50', 'N/A'))
           ")" >> "$GITHUB_OUTPUT"
-            echo "overhead-p99=$(python -c "
+          echo "overhead-p99=$(python -c "
           import json
-          with open('results/results.json') as f:
+          with open('$RESULTS_FILE') as f:
               data = json.load(f)
           overhead = data.get('summary', {}).get('overhead', {})
           print(overhead.get('p99', 'N/A'))
           ")" >> "$GITHUB_OUTPUT"
-            echo "regression=$(python -c "
+          echo "regression=$(python -c "
           import json
-          with open('results/results.json') as f:
+          with open('$RESULTS_FILE') as f:
               data = json.load(f)
           print(str(data.get('summary', {}).get('regression', False)).lower())
           ")" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Upload results artifact
         uses: actions/upload-artifact@v4
@@ -90,13 +97,11 @@ jobs:
           path: results/
 
       - name: Post PR comment
-        if: inputs.post-comment && github.event_name == 'pull_request'
+        if: inputs.post-comment && github.event_name == 'pull_request' && steps.find-results.outputs.path != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f results/report.md ]; then
-            bench post-comment \
-              --repo="${{ github.repository }}" \
-              --pr="${{ github.event.pull_request.number }}" \
-              --results-file=results/results.json
-          fi
+          bench post-comment \
+            --repo="${{ github.repository }}" \
+            --pr="${{ github.event.pull_request.number }}" \
+            --results-file="${{ steps.find-results.outputs.path }}"

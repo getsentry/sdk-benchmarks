@@ -58,3 +58,21 @@ def test_format_comment_per_endpoint():
     body = format_comment(results)
     assert "json" in body
     assert "+1.20%" in body
+
+
+def test_format_comment_per_endpoint_missing_metrics():
+    """Per-endpoint formatting should not crash when metrics are missing."""
+    results = {
+        "app": "go/gin",
+        "sdk_version": "0.31.0",
+        "summary": {"overhead": {}},
+        "endpoints": {
+            "db": {
+                "overhead": {"p50": 2.0},
+            },
+        },
+    }
+    body = format_comment(results)
+    assert "db" in body
+    assert "+2.00%" in body
+    assert "N/A" in body
