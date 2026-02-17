@@ -114,7 +114,7 @@ def run_variant(
 
     Returns a dict with iteration results including vegeta metrics and docker stats.
     """
-    results_dir = os.path.join(results_base, variant, f"iter-{iteration}")
+    results_dir = os.path.abspath(os.path.join(results_base, variant, f"iter-{iteration}"))
     os.makedirs(results_dir, exist_ok=True)
 
     compose_yaml = render_compose(config, variant, results_dir)
@@ -149,10 +149,6 @@ def run_variant(
         logger.info("[%s iter=%d] Waiting for load generator to finish...", variant, iteration)
         _docker_compose("wait", "loadgen", compose_file=compose_file, project_name=project_name)
 
-        # Stop stats collection
-        stop_event.set()
-        stats_thread.join(timeout=5)
-
         # Read vegeta results
         vegeta_results_path = os.path.join(results_dir, "results.json")
         vegeta_report_path = os.path.join(results_dir, "report.txt")
@@ -177,6 +173,10 @@ def run_variant(
         }
 
     finally:
+        # Stop stats collection
+        stop_event.set()
+        stats_thread.join(timeout=5)
+
         # Always clean up containers
         logger.info("[%s iter=%d] Cleaning up...", variant, iteration)
         try:
