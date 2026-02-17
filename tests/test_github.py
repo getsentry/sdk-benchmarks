@@ -76,3 +76,15 @@ def test_format_comment_per_endpoint_missing_metrics():
     assert "db" in body
     assert "+2.00%" in body
     assert "N/A" in body
+
+
+def test_format_comment_iterations_as_list():
+    """Iterations stored as a list should render as a count, not raw list."""
+    results = {
+        "app": "python/django",
+        "sdk_version": "2.0.0",
+        "summary": {"overhead": {}},
+        "iterations": [{"variant": "baseline"}, {"variant": "instrumented"}],
+    }
+    body = format_comment(results)
+    assert "Iterations: 2" in body

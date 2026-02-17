@@ -55,7 +55,7 @@ def format_comment(results: dict) -> str:
         "<details>",
         "<summary>Details</summary>",
         "",
-        f"- Iterations: {results.get('iterations', 'N/A')}",
+        f"- Iterations: {len(results['iterations']) if isinstance(results.get('iterations'), list) else results.get('iterations', 'N/A')}",
         f"- RPS: {results.get('load', {}).get('rps', 'N/A')}",
         f"- Duration: {results.get('load', {}).get('duration', 'N/A')}",
         "",
