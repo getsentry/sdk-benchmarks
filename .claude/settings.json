@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(make lint:*)",
+      "Bash(pip install:*)",
+      "Bash(python3 -m pip install:*)",
+      "Bash(brew list:*)",
+      "Bash(brew install:*)",
+      "Bash(uv venv:*)",
+      "Bash(uv pip install:*)",
+      "Bash(.venv/bin/ruff check:*)",
+      "Bash(.venv/bin/pytest tests/)",
+      "Bash(docker build:*)",
+      "Bash(docker run:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(GOPATH=\"$HOME/go\" PATH=\"/opt/homebrew/opt/go/libexec/bin:$PATH\")",
+      "Bash(cd:*)",
+      "Bash(go get:*)"
+    ]
+  }
+}
