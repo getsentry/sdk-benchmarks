@@ -15,7 +15,7 @@ on:
         description: "Maximum number of benchmark iterations (adaptive loop may stop early)"
         required: false
         type: number
-        default: 20
+        default: 10
     outputs:
       overhead-p50:
         description: "P50 latency overhead percentage"

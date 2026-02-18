@@ -15,7 +15,7 @@ on:
         description: "Maximum number of benchmark iterations"
         required: false
         type: number
-        default: 20
+        default: 10
   workflow_dispatch:
     inputs:
       language:
@@ -89,7 +89,7 @@ jobs:
     with:
       app: ${{ matrix.app }}
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
-      iterations: ${{ inputs.iterations || 20 }}
+      iterations: ${{ inputs.iterations || 10 }}
 
   summary:
     needs: bench
