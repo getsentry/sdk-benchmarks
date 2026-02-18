@@ -173,13 +173,16 @@ class TestComputeSummary:
         summary = _compute_summary(iterations)
         assert "p50" in summary["p_values"]
 
-    def test_insufficient_data(self):
-        """With fewer than 2 paired iterations, returns empty results."""
+    def test_single_iteration_shows_overhead_without_ci(self):
+        """With 1 paired iteration, overhead is computed but no CI or p-value."""
         iterations = [
             _make_iteration("baseline", 1, [1000] * 50),
             _make_iteration("instrumented", 1, [1020] * 50),
         ]
         summary = _compute_summary(iterations)
+        assert summary["overhead"]["p50"] == 2.0
+        assert summary["confidence_intervals"] == {}
+        assert summary["p_values"] == {}
         assert summary["regression"] is False
         assert summary["converged"] is False
         assert summary["iterations_used"] == 1

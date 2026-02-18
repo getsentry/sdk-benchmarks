@@ -312,15 +312,15 @@ def _compute_summary(iterations: list[dict]) -> dict:
     # Find paired iterations (both baseline and instrumented exist)
     paired_iters = sorted(set(baseline_by_iter) & set(instrumented_by_iter))
 
-    if len(paired_iters) < 2:
-        logger.warning("Not enough paired iterations for statistical analysis")
+    if not paired_iters:
+        logger.warning("No paired iterations found for summary computation")
         return {
             "overhead": {},
             "confidence_intervals": {},
             "p_values": {},
             "regression": False,
             "converged": False,
-            "iterations_used": len(paired_iters),
+            "iterations_used": 0,
         }
 
     metrics = [("p50", 50), ("p99", 99), ("mean", None)]
@@ -344,11 +344,15 @@ def _compute_summary(iterations: list[dict]) -> dict:
             if base_val > 0:
                 per_iter_overhead.append((inst_val - base_val) / base_val * 100.0)
 
-        if len(per_iter_overhead) < 2:
+        if not per_iter_overhead:
             continue
 
         mean_overhead = sum(per_iter_overhead) / len(per_iter_overhead)
         overhead[name] = round(mean_overhead, 2)
+
+        # Need at least 2 samples for CI and t-test
+        if len(per_iter_overhead) < 2:
+            continue
 
         # t-based 95% confidence interval
         n = len(per_iter_overhead)
