@@ -96,6 +96,7 @@ jobs:
       app: ${{ matrix.app }}
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
       iterations: ${{ inputs.iterations || 10 }}
+      benchmarks-ref: ${{ inputs.benchmarks-ref || 'main' }}
 
   summary:
     needs: bench
