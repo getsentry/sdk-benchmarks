@@ -12,15 +12,10 @@ on:
         required: false
         type: string
       iterations:
-        description: "Number of benchmark iterations"
+        description: "Maximum number of benchmark iterations"
         required: false
         type: number
-        default: 1
-      post-comment:
-        description: "Post results as a PR comment"
-        required: false
-        type: boolean
-        default: true
+        default: 20
   workflow_dispatch:
     inputs:
       language:
@@ -92,5 +87,47 @@ jobs:
     with:
       app: ${{ matrix.app }}
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
-      iterations: ${{ inputs.iterations || 1 }}
-      post-comment: ${{ inputs.post-comment == '' && true || inputs.post-comment }}
+      iterations: ${{ inputs.iterations || 20 }}
+
+  summary:
+    needs: bench
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bench CLI
+        run: pip install -e .
+
+      - name: Download all benchmark artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-*
+          path: all-results/
+          merge-multiple: false
+
+      - name: Post combined PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Each artifact extracts to all-results/<artifact-name>/...
+          # The results.json files are at <artifact>/*/results.json (depth 2)
+          # Flatten them into a single directory structure for post-summary
+          mkdir -p combined-results
+          for results_file in $(find all-results/ -maxdepth 3 -name 'results.json' -path '*/results.json' ! -path '*/iter-*/results.json'); do
+            # Extract app dir name (e.g. go-gin) from the path
+            app_dir=$(basename "$(dirname "$results_file")")
+            mkdir -p "combined-results/${app_dir}"
+            cp "$results_file" "combined-results/${app_dir}/results.json"
+          done
+
+          bench post-summary \
+            --repo="${{ github.repository }}" \
+            --pr="${{ github.event.pull_request.number }}" \
+            --results-dir=combined-results/

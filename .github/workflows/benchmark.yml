@@ -12,15 +12,10 @@ on:
         required: true
         type: string
       iterations:
-        description: "Number of benchmark iterations"
+        description: "Maximum number of benchmark iterations (adaptive loop may stop early)"
         required: false
         type: number
-        default: 5
-      post-comment:
-        description: "Post results as a PR comment"
-        required: false
-        type: boolean
-        default: true
+        default: 20
     outputs:
       overhead-p50:
         description: "P50 latency overhead percentage"
@@ -113,13 +108,3 @@ jobs:
         with:
           name: ${{ steps.find-results.outputs.artifact-name }}
           path: results/
-
-      - name: Post PR comment
-        if: inputs.post-comment && github.event_name == 'pull_request' && steps.find-results.outputs.path != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          bench post-comment \
-            --repo="${{ github.repository }}" \
-            --pr="${{ github.event.pull_request.number }}" \
-            --results-file="${{ steps.find-results.outputs.path }}"

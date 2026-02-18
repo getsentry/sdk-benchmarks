@@ -7,7 +7,10 @@ from unittest.mock import patch
 import yaml
 
 from lib.runner import (
+    _compute_summary,
+    _extract_per_iteration_latencies,
     _parse_mem_usage,
+    _percentile,
     _prepare_sdk_version,
     load_config,
     render_compose,
@@ -88,3 +91,131 @@ class TestPrepareSdkVersion:
 
             output = (app_dir / "requirements-sentry.txt").read_text()
             assert "sentry-sdk[django]==2.1.0" in output
+
+
+def _make_iteration(variant, iteration, latencies):
+    """Helper to create a mock iteration dict."""
+    return {
+        "variant": variant,
+        "iteration": iteration,
+        "vegeta_results": [{"latency": lat} for lat in latencies],
+        "docker_stats": [],
+    }
+
+
+class TestExtractPerIterationLatencies:
+    def test_groups_by_iteration(self):
+        iterations = [
+            _make_iteration("baseline", 1, [100, 200]),
+            _make_iteration("baseline", 2, [150, 250]),
+            _make_iteration("instrumented", 1, [110, 210]),
+        ]
+        result = _extract_per_iteration_latencies(iterations, "baseline")
+        assert set(result.keys()) == {1, 2}
+        assert result[1] == [100, 200]
+        assert result[2] == [150, 250]
+
+    def test_filters_by_variant(self):
+        iterations = [
+            _make_iteration("baseline", 1, [100]),
+            _make_iteration("instrumented", 1, [110]),
+        ]
+        result = _extract_per_iteration_latencies(iterations, "instrumented")
+        assert set(result.keys()) == {1}
+        assert result[1] == [110]
+
+
+class TestComputeSummary:
+    def test_no_regression_with_similar_latencies(self):
+        """When baseline and instrumented have similar latencies, no regression."""
+        iterations = []
+        for i in range(1, 6):
+            iterations.append(_make_iteration("baseline", i, [1000] * 100))
+            iterations.append(_make_iteration("instrumented", i, [1010] * 100))
+
+        summary = _compute_summary(iterations)
+        assert summary["regression"] is False
+        assert summary["converged"] is True
+        assert summary["iterations_used"] == 5
+        # ~1% overhead
+        assert abs(summary["overhead"]["p50"] - 1.0) < 0.5
+
+    def test_regression_with_large_overhead(self):
+        """When instrumented is significantly slower, detect regression."""
+        iterations = []
+        for i in range(1, 6):
+            iterations.append(_make_iteration("baseline", i, [1000] * 100))
+            # 5% overhead — above the 2% regression threshold
+            iterations.append(_make_iteration("instrumented", i, [1050] * 100))
+
+        summary = _compute_summary(iterations)
+        assert summary["regression"] is True
+        assert summary["overhead"]["p50"] == 5.0
+
+    def test_confidence_intervals_present(self):
+        iterations = []
+        for i in range(1, 4):
+            iterations.append(_make_iteration("baseline", i, [1000] * 50))
+            iterations.append(_make_iteration("instrumented", i, [1020] * 50))
+
+        summary = _compute_summary(iterations)
+        assert "p50" in summary["confidence_intervals"]
+        ci = summary["confidence_intervals"]["p50"]
+        assert "lower" in ci
+        assert "upper" in ci
+
+    def test_p_values_present(self):
+        iterations = []
+        for i in range(1, 4):
+            iterations.append(_make_iteration("baseline", i, [1000] * 50))
+            iterations.append(_make_iteration("instrumented", i, [1020] * 50))
+
+        summary = _compute_summary(iterations)
+        assert "p50" in summary["p_values"]
+
+    def test_insufficient_data(self):
+        """With fewer than 2 paired iterations, returns empty results."""
+        iterations = [
+            _make_iteration("baseline", 1, [1000] * 50),
+            _make_iteration("instrumented", 1, [1020] * 50),
+        ]
+        summary = _compute_summary(iterations)
+        assert summary["regression"] is False
+        assert summary["converged"] is False
+        assert summary["iterations_used"] == 1
+
+    def test_no_data(self):
+        summary = _compute_summary([])
+        assert summary["regression"] is False
+        assert summary["converged"] is False
+
+    def test_convergence_with_tight_data(self):
+        """Identical overhead across iterations should converge quickly."""
+        iterations = []
+        for i in range(1, 4):
+            iterations.append(_make_iteration("baseline", i, [1000] * 100))
+            iterations.append(_make_iteration("instrumented", i, [1010] * 100))
+
+        summary = _compute_summary(iterations)
+        assert summary["converged"] is True
+
+    def test_no_convergence_with_noisy_data(self):
+        """Highly variable overhead should not converge with few iterations."""
+        import random
+        random.seed(42)
+        iterations = []
+        for i in range(1, 4):
+            # Baseline stable, but instrumented wildly varies per iteration
+            base = [1000] * 100
+            if i == 1:
+                inst = [1200] * 100  # +20%
+            elif i == 2:
+                inst = [900] * 100   # -10%
+            else:
+                inst = [1100] * 100  # +10%
+            iterations.append(_make_iteration("baseline", i, base))
+            iterations.append(_make_iteration("instrumented", i, inst))
+
+        summary = _compute_summary(iterations)
+        # CI is wide due to variance, so should not converge
+        assert summary["converged"] is False

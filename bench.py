@@ -101,3 +101,26 @@ def post_comment(repo, pr, results_file):
 
     post_results(repo, pr, results_file)
     click.echo(f"Posted benchmark results to {repo}#{pr}")
+
+
+@cli.command("post-summary")
+@click.option("--repo", required=True, help="GitHub repo (owner/name).")
+@click.option("--pr", required=True, type=int, help="PR number.")
+@click.option("--results-dir", required=True, type=click.Path(exists=True), help="Directory containing result subdirs.")
+def post_summary(repo, pr, results_dir):
+    """Post combined benchmark results from multiple apps as a single PR comment."""
+    from lib.github import format_combined_comment, post_comment as gh_post_comment
+
+    results_path = Path(results_dir)
+    results_list = []
+    for results_file in sorted(results_path.glob("*/results.json")):
+        with open(results_file) as f:
+            results_list.append(json.load(f))
+
+    if not results_list:
+        raise click.ClickException(f"No results.json files found in {results_dir}/*/")
+
+    body = format_combined_comment(results_list)
+    gh_post_comment(repo, pr, body)
+    apps = [r.get("app", "unknown") for r in results_list]
+    click.echo(f"Posted combined results for {', '.join(apps)} to {repo}#{pr}")

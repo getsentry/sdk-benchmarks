@@ -1,6 +1,8 @@
 """Tests for the CLI entrypoint."""
 
 import json
+import os
+import tempfile
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -99,3 +101,49 @@ def test_resolve_version_cli():
         result = runner.invoke(cli, ["resolve-version", "go"])
     assert result.exit_code == 0
     assert "0.42.0" in result.output
+
+
+def test_cli_has_post_summary_command():
+    assert "post-summary" in cli.commands
+
+
+def test_post_summary_no_results():
+    """post-summary should fail when no results.json files exist."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = runner.invoke(cli, ["post-summary", "--repo=test/repo", "--pr=1",
+                                     f"--results-dir={tmpdir}"])
+    assert result.exit_code != 0
+    assert "No results.json files found" in result.output
+
+
+def test_post_summary_finds_results():
+    """post-summary should find and format results from subdirectories."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create fake results
+        for app_dir in ["go-gin", "go-echo"]:
+            os.makedirs(os.path.join(tmpdir, app_dir))
+            results = {
+                "app": app_dir.replace("-", "/"),
+                "sdk_version": "0.42.0",
+                "summary": {
+                    "overhead": {"p50": 1.0},
+                    "confidence_intervals": {},
+                    "p_values": {},
+                    "regression": False,
+                    "converged": True,
+                    "iterations_used": 5,
+                },
+                "load": {"rps": 100, "duration": "30s"},
+            }
+            with open(os.path.join(tmpdir, app_dir, "results.json"), "w") as f:
+                json.dump(results, f)
+
+        with patch("lib.github.post_comment") as mock_post:
+            result = runner.invoke(cli, ["post-summary", "--repo=test/repo", "--pr=1",
+                                         f"--results-dir={tmpdir}"])
+
+    assert result.exit_code == 0
+    assert "go/echo" in result.output
+    assert "go/gin" in result.output
