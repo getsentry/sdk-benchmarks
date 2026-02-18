@@ -1,0 +1,48 @@
+name: "E2E: Go benchmarks"
+
+on:
+  pull_request:
+    branches: [main, feat/github-actions]
+    paths:
+      - "apps/go/**"
+      - "configs/go-*.yaml"
+      - "lib/**"
+      - "templates/**"
+      - ".github/workflows/e2e-go.yml"
+      - ".github/workflows/benchmark.yml"
+  workflow_dispatch:
+    inputs:
+      sdk-version:
+        description: "sentry-go version (e.g. 0.42.0 or latest)"
+        default: "latest"
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.sdk.outputs.version }}
+    steps:
+      - name: Resolve SDK version
+        id: sdk
+        env:
+          INPUT_VERSION: ${{ inputs.sdk-version }}
+        run: |
+          VERSION="${INPUT_VERSION:-latest}"
+          if [ "$VERSION" = "latest" ]; then
+            VERSION=$(curl -sf 'https://proxy.golang.org/github.com/getsentry/sentry-go/@latest' | python3 -c "import json,sys; print(json.load(sys.stdin)['Version'].lstrip('v'))")
+            echo "Resolved latest sentry-go version: $VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  bench:
+    needs: resolve-version
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [go/net-http, go/gin, go/echo]
+    uses: ./.github/workflows/benchmark.yml
+    with:
+      app: ${{ matrix.app }}
+      sdk-version: ${{ needs.resolve-version.outputs.version }}
+      iterations: 1
+      post-comment: true
