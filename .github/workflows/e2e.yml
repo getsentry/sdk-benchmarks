@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: getsentry/sdk-benchmarks
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.job_workflow_sha }}
 
       - uses: actions/setup-python@v5
         with:
