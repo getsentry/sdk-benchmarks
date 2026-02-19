@@ -361,17 +361,6 @@ def _percentile(sorted_values: list[float], p: float) -> float:
     return sorted_values[f] * (c - k) + sorted_values[c] * (k - f)
 
 
-def _extract_latencies(iterations: list[dict], variant: str) -> list[float]:
-    """Extract all latency values (in nanoseconds) for a given variant."""
-    latencies = []
-    for it in iterations:
-        if it.get("variant") != variant:
-            continue
-        for req in it.get("vegeta_results") or []:
-            latencies.append(req["latency"])
-    return latencies
-
-
 def _extract_per_iteration_latencies(
     iterations: list[dict], variant: str
 ) -> dict[int, list[float]]:
@@ -583,14 +572,12 @@ def _prepare_go_sdk_version(app_dir: Path, sdk_version: str) -> None:
     sentry_modules = []
     for line in content.splitlines():
         line = line.strip()
-        # Match lines like: github.com/getsentry/sentry-go v0.42.0
-        # or: github.com/getsentry/sentry-go/gin v0.42.0
         if "github.com/getsentry/sentry-go" in line and not line.startswith("module"):
             parts = line.split()
-            if parts:
-                mod = parts[0]
-                if mod.startswith("github.com/getsentry/sentry-go"):
-                    sentry_modules.append(mod)
+            for part in parts:
+                if part.startswith("github.com/getsentry/sentry-go"):
+                    sentry_modules.append(part)
+                    break
 
     if not sentry_modules:
         logger.warning("No sentry-go modules found in %s", go_mod)

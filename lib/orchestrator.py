@@ -189,12 +189,13 @@ def collect_iteration_results(
     """
     all_iteration_data = []
     for artifact_dir in artifact_dirs:
-        for filename in os.listdir(artifact_dir):
-            if filename.startswith("iteration-") and filename.endswith(".json"):
-                filepath = os.path.join(artifact_dir, filename)
-                with open(filepath) as f:
-                    data = json.load(f)
-                all_iteration_data.append(data)
+        for dirpath, _dirnames, filenames in os.walk(artifact_dir):
+            for filename in filenames:
+                if filename.startswith("iteration-") and filename.endswith(".json"):
+                    filepath = os.path.join(dirpath, filename)
+                    with open(filepath) as f:
+                        data = json.load(f)
+                    all_iteration_data.append(data)
     return all_iteration_data
 
 
