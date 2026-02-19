@@ -16,6 +16,11 @@ on:
         required: false
         type: number
         default: 10
+      benchmarks-ref:
+        description: "Git ref of sdk-benchmarks to checkout (must match the ref used in the caller's uses: directive)"
+        required: false
+        type: string
+        default: main
   workflow_dispatch:
     inputs:
       language:
@@ -34,12 +39,12 @@ jobs:
       iterations: ${{ steps.iterations.outputs.list }}
       sdk-version: ${{ steps.version.outputs.sdk-version }}
       latest-sdk-version: ${{ steps.latest.outputs.latest-sdk-version }}
-      benchmarks-sha: ${{ github.job_workflow_sha }}
+      benchmarks-ref: ${{ inputs.benchmarks-ref || 'main' }}
     steps:
       - uses: actions/checkout@v4
         with:
           repository: getsentry/sdk-benchmarks
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ inputs.benchmarks-ref || 'main' }}
 
       - uses: actions/setup-python@v5
         with:
@@ -114,7 +119,7 @@ jobs:
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
       latest-sdk-version: ${{ needs.discover.outputs.latest-sdk-version }}
       iteration: ${{ matrix.iteration }}
-      benchmarks-ref: ${{ needs.discover.outputs.benchmarks-sha }}
+      benchmarks-ref: ${{ needs.discover.outputs.benchmarks-ref }}
 
   summary:
     needs: [discover, bench]
