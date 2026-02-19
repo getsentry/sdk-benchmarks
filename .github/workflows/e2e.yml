@@ -34,21 +34,12 @@ jobs:
       iterations: ${{ steps.iterations.outputs.list }}
       sdk-version: ${{ steps.version.outputs.sdk-version }}
       latest-sdk-version: ${{ steps.latest.outputs.latest-sdk-version }}
-      benchmarks-ref: ${{ steps.ref.outputs.benchmarks-ref }}
+      benchmarks-sha: ${{ github.job_workflow_sha }}
     steps:
-      - name: Resolve benchmarks ref
-        id: ref
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-        run: |
-          # github.workflow_ref = owner/repo/path@ref — extract everything after @
-          REF="${WORKFLOW_REF##*@}"
-          echo "benchmarks-ref=${REF}" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v4
         with:
           repository: getsentry/sdk-benchmarks
-          ref: ${{ steps.ref.outputs.benchmarks-ref }}
+          ref: ${{ github.job_workflow_sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -123,7 +114,7 @@ jobs:
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
       latest-sdk-version: ${{ needs.discover.outputs.latest-sdk-version }}
       iteration: ${{ matrix.iteration }}
-      benchmarks-ref: ${{ needs.discover.outputs.benchmarks-ref }}
+      benchmarks-ref: ${{ needs.discover.outputs.benchmarks-sha }}
 
   summary:
     needs: [discover, bench]
