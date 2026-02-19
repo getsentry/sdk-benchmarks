@@ -21,6 +21,10 @@ on:
         required: false
         type: string
         default: main
+    secrets:
+      BENCHMARKS_TOKEN:
+        description: "GitHub token with actions:write scope on sdk-benchmarks"
+        required: true
   workflow_dispatch:
     inputs:
       language:
@@ -107,6 +111,8 @@ jobs:
       latest-sdk-version: ${{ needs.discover.outputs.latest-sdk-version }}
       iterations: ${{ inputs.iterations || 10 }}
       benchmarks-ref: ${{ inputs.benchmarks-ref || 'main' }}
+    secrets:
+      BENCHMARKS_TOKEN: ${{ secrets.BENCHMARKS_TOKEN }}
 
   summary:
     needs: bench

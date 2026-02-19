@@ -193,6 +193,76 @@ def run_variant(
             logger.warning("Cleanup failed: %s", e.stderr)
 
 
+def run_single_iteration(
+    app: str,
+    sdk_version: str,
+    iteration: int,
+    output_dir: str = "results/",
+    latest_sdk_version: str | None = None,
+) -> dict:
+    """Run a single benchmark iteration (all variants) without adaptive loop.
+
+    Runs baseline, latest_release (optional), and current_branch for a single
+    iteration number. Writes iteration-{N}.json with the raw per-variant results.
+
+    Args:
+        app: App to benchmark (e.g. 'go/net-http').
+        sdk_version: SDK version for the current branch.
+        iteration: Iteration number to run.
+        output_dir: Directory to write results to.
+        latest_sdk_version: If provided, also benchmark the latest stable release.
+
+    Returns a dict with the iteration results for all variants.
+    """
+    config = load_config(app)
+    has_latest_release = latest_sdk_version is not None
+
+    results_base = os.path.join(output_dir, f"{config['language']}-{config['framework']}")
+    os.makedirs(results_base, exist_ok=True)
+
+    variants_in_round = ["baseline"]
+    if has_latest_release:
+        variants_in_round.append("latest_release")
+    variants_in_round.append("current_branch")
+
+    logger.info("=== Running iteration %d (%s) ===", iteration, ", ".join(variants_in_round))
+
+    iteration_results = []
+
+    # Baseline — no SDK
+    logger.info("--- baseline iteration %d ---", iteration)
+    result = run_variant(config, "baseline", iteration, results_base)
+    iteration_results.append(result)
+
+    # Latest release — instrumented with stable SDK
+    if has_latest_release:
+        logger.info("--- latest_release iteration %d ---", iteration)
+        _prepare_sdk_version(config, latest_sdk_version)
+        result = run_variant(config, "latest_release", iteration, results_base)
+        iteration_results.append(result)
+
+    # Current branch — instrumented with PR's SDK
+    logger.info("--- current_branch iteration %d ---", iteration)
+    _prepare_sdk_version(config, sdk_version)
+    result = run_variant(config, "current_branch", iteration, results_base)
+    iteration_results.append(result)
+
+    output = {
+        "app": app,
+        "sdk_version": sdk_version,
+        "latest_sdk_version": latest_sdk_version,
+        "iteration": iteration,
+        "results": iteration_results,
+    }
+
+    output_path = os.path.join(results_base, f"iteration-{iteration}.json")
+    with open(output_path, "w") as f:
+        json.dump(output, f, indent=2, default=str)
+
+    logger.info("Iteration results written to %s", output_path)
+    return output
+
+
 def run_benchmark(
     app: str,
     sdk_version: str,

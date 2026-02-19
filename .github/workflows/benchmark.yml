@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       iterations:
-        description: "Maximum number of benchmark iterations (adaptive loop may stop early)"
+        description: "Number of parallel benchmark iterations to dispatch"
         required: false
         type: number
         default: 10
@@ -25,6 +25,10 @@ on:
         required: false
         type: string
         default: main
+    secrets:
+      BENCHMARKS_TOKEN:
+        description: "GitHub token with actions:write scope on sdk-benchmarks"
+        required: true
     outputs:
       overhead-p50:
         description: "P50 latency overhead percentage"
@@ -39,6 +43,7 @@ on:
 jobs:
   bench:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     outputs:
       overhead-p50: ${{ steps.results.outputs.overhead-p50 }}
       overhead-p99: ${{ steps.results.outputs.overhead-p99 }}
@@ -49,12 +54,6 @@ jobs:
           repository: getsentry/sdk-benchmarks
           ref: ${{ inputs.benchmarks-ref || 'main' }}
 
-      - uses: actions/setup-go@v5
-        if: startsWith(inputs.app, 'go/')
-        with:
-          go-version: "1.25"
-          cache: false
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -62,23 +61,29 @@ jobs:
       - name: Install bench CLI
         run: pip install -e .
 
-      - name: Run benchmark
+      - name: Orchestrate parallel benchmarks
         env:
           BENCH_APP: ${{ inputs.app }}
           BENCH_SDK_VERSION: ${{ inputs.sdk-version }}
           BENCH_LATEST_SDK_VERSION: ${{ inputs.latest-sdk-version }}
           BENCH_ITERATIONS: ${{ inputs.iterations }}
+          BENCH_BENCHMARKS_REF: ${{ inputs.benchmarks-ref || 'main' }}
+          BENCHMARKS_TOKEN: ${{ secrets.BENCHMARKS_TOKEN }}
+          CALLER_RUN_ID: ${{ github.run_id }}
         run: |
           LATEST_FLAG=""
           if [ -n "$BENCH_LATEST_SDK_VERSION" ]; then
             LATEST_FLAG="--latest-sdk-version=$BENCH_LATEST_SDK_VERSION"
           fi
 
-          bench run "$BENCH_APP" \
+          bench orchestrate "$BENCH_APP" \
             --sdk-version="$BENCH_SDK_VERSION" \
             $LATEST_FLAG \
             --iterations="$BENCH_ITERATIONS" \
-            --output-dir=results/
+            --output-dir=results/ \
+            --benchmarks-ref="$BENCH_BENCHMARKS_REF" \
+            --token="$BENCHMARKS_TOKEN" \
+            --caller-run-id="$CALLER_RUN_ID"
 
       - name: Find results file
         id: find-results

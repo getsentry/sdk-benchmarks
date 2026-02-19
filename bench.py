@@ -90,6 +90,64 @@ def run(app, sdk_version, latest_sdk_version, iterations, output_dir):
     click.echo(f"Benchmark complete. {len(results.get('iterations', []))} iterations recorded.")
 
 
+@cli.command("run-iteration")
+@click.argument("app")
+@click.option("--sdk-version", required=True, help="SDK version to benchmark (current branch).")
+@click.option("--latest-sdk-version", default=None, help="Latest stable SDK version for 3-way comparison.")
+@click.option("--iteration", required=True, type=int, help="Iteration number to run.")
+@click.option("--output-dir", default="results/", help="Directory to write results to.")
+def run_iteration(app, sdk_version, latest_sdk_version, iteration, output_dir):
+    """Run a single benchmark iteration for an APP (all variants)."""
+    import logging
+
+    from lib.runner import run_single_iteration
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    result = run_single_iteration(
+        app,
+        sdk_version,
+        iteration=iteration,
+        output_dir=output_dir,
+        latest_sdk_version=latest_sdk_version,
+    )
+    click.echo(f"Iteration {iteration} complete. {len(result.get('results', []))} variants recorded.")
+
+
+@cli.command()
+@click.argument("app")
+@click.option("--sdk-version", required=True, help="SDK version to benchmark (current branch).")
+@click.option("--latest-sdk-version", default=None, help="Latest stable SDK version for 3-way comparison.")
+@click.option("--iterations", default=10, help="Number of parallel iterations to dispatch.")
+@click.option("--timeout", default=1800, help="Overall timeout in seconds (default: 1800).")
+@click.option("--output-dir", default="results/", help="Directory to write results to.")
+@click.option("--benchmarks-ref", default="main", help="Git ref of sdk-benchmarks to use.")
+@click.option("--token", required=True, envvar="BENCHMARKS_TOKEN", help="GitHub token with actions:write scope.")
+@click.option("--caller-run-id", required=True, help="GitHub Actions run ID of the calling workflow.")
+def orchestrate(app, sdk_version, latest_sdk_version, iterations, timeout, output_dir, benchmarks_ref, token, caller_run_id):
+    """Orchestrate parallel benchmark iterations for an APP."""
+    import logging
+
+    from lib.orchestrator import orchestrate as do_orchestrate
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    results = do_orchestrate(
+        app=app,
+        sdk_version=sdk_version,
+        latest_sdk_version=latest_sdk_version,
+        iterations=iterations,
+        timeout=timeout,
+        output_dir=output_dir,
+        benchmarks_ref=benchmarks_ref,
+        token=token,
+        caller_run_id=caller_run_id,
+    )
+    orch = results.get("orchestration", {})
+    click.echo(
+        f"Orchestration complete. "
+        f"{orch.get('successful', 0)}/{orch.get('total_dispatched', 0)} iterations succeeded."
+    )
+
+
 @cli.command()
 @click.argument("baseline", type=click.Path(exists=True))
 @click.argument("candidate", type=click.Path(exists=True))

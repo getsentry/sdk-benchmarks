@@ -1,0 +1,78 @@
+name: "bench-iteration ${{ inputs.run-key }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to benchmark (e.g. go/net-http)"
+        required: true
+        type: string
+      sdk-version:
+        description: "SDK version to benchmark (current branch)"
+        required: true
+        type: string
+      latest-sdk-version:
+        description: "Latest stable SDK version for 3-way comparison"
+        required: false
+        type: string
+      iteration:
+        description: "Iteration number"
+        required: true
+        type: string
+      run-key:
+        description: "Correlation ID for the orchestrator to find this run"
+        required: true
+        type: string
+      benchmarks-ref:
+        description: "Git ref of sdk-benchmarks to checkout"
+        required: false
+        type: string
+        default: main
+
+run-name: "bench-iteration ${{ inputs.run-key }}"
+
+jobs:
+  iterate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.benchmarks-ref || 'main' }}
+
+      - uses: actions/setup-go@v5
+        if: startsWith(inputs.app, 'go/')
+        with:
+          go-version: "1.25"
+          cache: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bench CLI
+        run: pip install -e .
+
+      - name: Run single iteration
+        env:
+          BENCH_APP: ${{ inputs.app }}
+          BENCH_SDK_VERSION: ${{ inputs.sdk-version }}
+          BENCH_LATEST_SDK_VERSION: ${{ inputs.latest-sdk-version }}
+          BENCH_ITERATION: ${{ inputs.iteration }}
+        run: |
+          LATEST_FLAG=""
+          if [ -n "$BENCH_LATEST_SDK_VERSION" ]; then
+            LATEST_FLAG="--latest-sdk-version=$BENCH_LATEST_SDK_VERSION"
+          fi
+
+          bench run-iteration "$BENCH_APP" \
+            --sdk-version="$BENCH_SDK_VERSION" \
+            $LATEST_FLAG \
+            --iteration="$BENCH_ITERATION" \
+            --output-dir=results/
+
+      - name: Upload iteration artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "iteration-${{ inputs.run-key }}"
+          path: results/
