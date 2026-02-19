@@ -512,20 +512,33 @@ def _compute_summary(
     converged = cb["converged"]
     iterations_used = cb["iterations_used"]
 
-    # Regression detection: is current_branch overhead significantly above threshold?
+    # Regression detection
     regression = False
     if converged or iterations_used >= 3:
-        cb_p50_p = cb["p_values"].get("p50", 1.0)
-        cb_p50_ci = cb["confidence_intervals"].get("p50")
-        if cb_p50_ci and cb_p50_p < 0.05 and cb_p50_ci["lower"] > _REGRESSION_THRESHOLD:
-            # If we have latest_release data, only flag regression if current_branch
-            # is worse than latest_release
-            if has_latest_release:
-                lr_overhead = comparisons["latest_release"]["overhead"].get("p50", 0)
-                cb_overhead = cb["overhead"].get("p50", 0)
-                if cb_overhead > lr_overhead:
-                    regression = True
-            else:
+        if has_latest_release:
+            # Compare current_branch directly against latest_release.
+            # This detects whether the current branch is slower than the latest
+            # release, eliminating noise from baseline comparisons.
+            direct = _compute_pairwise_overhead(
+                iterations, "latest_release", "current_branch"
+            )
+            comparisons["cb_vs_latest"] = direct
+            d_p50_p = direct["p_values"].get("p50", 1.0)
+            d_p50_ci = direct["confidence_intervals"].get("p50")
+            if (
+                d_p50_ci
+                and d_p50_p < 0.05
+                and d_p50_ci["lower"] > _REGRESSION_THRESHOLD
+            ):
+                regression = True
+        else:
+            cb_p50_p = cb["p_values"].get("p50", 1.0)
+            cb_p50_ci = cb["confidence_intervals"].get("p50")
+            if (
+                cb_p50_ci
+                and cb_p50_p < 0.05
+                and cb_p50_ci["lower"] > _REGRESSION_THRESHOLD
+            ):
                 regression = True
 
     return {
