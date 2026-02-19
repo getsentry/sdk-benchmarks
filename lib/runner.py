@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import random
 import subprocess
 import threading
 from pathlib import Path
@@ -193,6 +194,40 @@ def run_variant(
             logger.warning("Cleanup failed: %s", e.stderr)
 
 
+def _run_iteration_variants(
+    config: dict,
+    sdk_versions: dict[str, str | None],
+    has_latest_release: bool,
+    iteration: int,
+    results_base: str,
+) -> list[dict]:
+    """Run all variants for a single iteration in randomized order.
+
+    Randomizing the order prevents systematic bias from runner drift (thermal
+    throttling, noisy neighbours) that would otherwise always affect whichever
+    variant runs last.
+    """
+    variants = [("baseline", None)]
+    if has_latest_release:
+        variants.append(("latest_release", sdk_versions["latest_release"]))
+    variants.append(("current_branch", sdk_versions["current_branch"]))
+
+    random.shuffle(variants)
+
+    variant_names = [v[0] for v in variants]
+    logger.info("=== Running iteration %d (%s) ===", iteration, ", ".join(variant_names))
+
+    results = []
+    for variant_name, version in variants:
+        logger.info("--- %s iteration %d ---", variant_name, iteration)
+        if version is not None:
+            _prepare_sdk_version(config, version)
+        result = run_variant(config, variant_name, iteration, results_base)
+        results.append(result)
+
+    return results
+
+
 def run_single_iteration(
     app: str,
     sdk_version: str,
@@ -220,32 +255,10 @@ def run_single_iteration(
     results_base = os.path.join(output_dir, f"{config['language']}-{config['framework']}")
     os.makedirs(results_base, exist_ok=True)
 
-    variants_in_round = ["baseline"]
-    if has_latest_release:
-        variants_in_round.append("latest_release")
-    variants_in_round.append("current_branch")
-
-    logger.info("=== Running iteration %d (%s) ===", iteration, ", ".join(variants_in_round))
-
-    iteration_results = []
-
-    # Baseline — no SDK
-    logger.info("--- baseline iteration %d ---", iteration)
-    result = run_variant(config, "baseline", iteration, results_base)
-    iteration_results.append(result)
-
-    # Latest release — instrumented with stable SDK
-    if has_latest_release:
-        logger.info("--- latest_release iteration %d ---", iteration)
-        _prepare_sdk_version(config, latest_sdk_version)
-        result = run_variant(config, "latest_release", iteration, results_base)
-        iteration_results.append(result)
-
-    # Current branch — instrumented with PR's SDK
-    logger.info("--- current_branch iteration %d ---", iteration)
-    _prepare_sdk_version(config, sdk_version)
-    result = run_variant(config, "current_branch", iteration, results_base)
-    iteration_results.append(result)
+    sdk_versions = {"latest_release": latest_sdk_version, "current_branch": sdk_version}
+    iteration_results = _run_iteration_variants(
+        config, sdk_versions, has_latest_release, iteration, results_base,
+    )
 
     output = {
         "app": app,
@@ -300,32 +313,14 @@ def run_benchmark(
         "iterations": [],
     }
 
+    sdk_versions = {"latest_release": latest_sdk_version, "current_branch": sdk_version}
+
     min_iterations = 3
     for i in range(1, iterations + 1):
-        variants_in_round = ["baseline"]
-        if has_latest_release:
-            variants_in_round.append("latest_release")
-        variants_in_round.append("current_branch")
-
-        logger.info("=== Running iteration %d/%d (%s) ===", i, iterations, ", ".join(variants_in_round))
-
-        # Baseline — no SDK
-        logger.info("--- baseline iteration %d ---", i)
-        result = run_variant(config, "baseline", i, results_base)
-        all_results["iterations"].append(result)
-
-        # Latest release — instrumented with stable SDK
-        if has_latest_release:
-            logger.info("--- latest_release iteration %d ---", i)
-            _prepare_sdk_version(config, latest_sdk_version)
-            result = run_variant(config, "latest_release", i, results_base)
-            all_results["iterations"].append(result)
-
-        # Current branch — instrumented with PR's SDK
-        logger.info("--- current_branch iteration %d ---", i)
-        _prepare_sdk_version(config, sdk_version)
-        result = run_variant(config, "current_branch", i, results_base)
-        all_results["iterations"].append(result)
+        iteration_results = _run_iteration_variants(
+            config, sdk_versions, has_latest_release, i, results_base,
+        )
+        all_results["iterations"].extend(iteration_results)
 
         if i >= min_iterations:
             summary = _compute_summary(all_results["iterations"], has_latest_release)
