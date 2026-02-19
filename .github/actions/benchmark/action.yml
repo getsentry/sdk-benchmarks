@@ -1,13 +1,16 @@
 name: "SDK Benchmark"
-description: "Run Sentry SDK benchmarks comparing baseline vs instrumented overhead"
+description: "Run Sentry SDK benchmarks comparing baseline vs latest release vs current branch"
 
 inputs:
   app:
     description: "App to benchmark (e.g. python/django, go/net-http)"
     required: true
   sdk-version:
-    description: "SDK version or install specifier"
+    description: "SDK version or install specifier (current branch)"
     required: true
+  latest-sdk-version:
+    description: "Latest stable SDK version for 3-way comparison"
+    required: false
   iterations:
     description: "Number of benchmark iterations"
     required: false
@@ -19,10 +22,10 @@ inputs:
 
 outputs:
   overhead-p50:
-    description: "P50 latency overhead percentage"
+    description: "P50 latency overhead percentage (current branch vs baseline)"
     value: ${{ steps.bench.outputs.overhead-p50 }}
   overhead-p99:
-    description: "P99 latency overhead percentage"
+    description: "P99 latency overhead percentage (current branch vs baseline)"
     value: ${{ steps.bench.outputs.overhead-p99 }}
   regression:
     description: "Whether a regression was detected (true/false)"
@@ -46,15 +49,22 @@ runs:
       env:
         BENCH_APP: ${{ inputs.app }}
         BENCH_SDK_VERSION: ${{ inputs.sdk-version }}
+        BENCH_LATEST_SDK_VERSION: ${{ inputs.latest-sdk-version }}
         BENCH_ITERATIONS: ${{ inputs.iterations }}
       run: |
+        LATEST_FLAG=""
+        if [ -n "$BENCH_LATEST_SDK_VERSION" ]; then
+          LATEST_FLAG="--latest-sdk-version=$BENCH_LATEST_SDK_VERSION"
+        fi
+
         bench run "$BENCH_APP" \
           --sdk-version="$BENCH_SDK_VERSION" \
+          $LATEST_FLAG \
           --iterations="$BENCH_ITERATIONS" \
           --output-dir=results/
 
         # Runner writes to results/{lang}-{framework}/results.json
-        RESULTS_FILE=$(find results/ -name 'results.json' -type f | head -1)
+        RESULTS_FILE=$(find results/ -maxdepth 2 -name 'results.json' -type f | head -1)
         # Sanitize app name for artifact upload (slashes not allowed)
         echo "artifact-name=benchmark-results-$(echo "$BENCH_APP" | tr '/' '-')" >> "$GITHUB_OUTPUT"
         if [ -n "$RESULTS_FILE" ]; then
@@ -63,15 +73,17 @@ runs:
         import json
         with open('${RESULTS_FILE}') as f:
             data = json.load(f)
-        overhead = data.get('summary', {}).get('overhead', {})
-        print(overhead.get('p50', 'N/A'))
+        comparisons = data.get('summary', {}).get('comparisons', {})
+        cb = comparisons.get('current_branch', {})
+        print(cb.get('overhead', {}).get('p50', 'N/A'))
         ")" >> "$GITHUB_OUTPUT"
           echo "overhead-p99=$(python -c "
         import json
         with open('${RESULTS_FILE}') as f:
             data = json.load(f)
-        overhead = data.get('summary', {}).get('overhead', {})
-        print(overhead.get('p99', 'N/A'))
+        comparisons = data.get('summary', {}).get('comparisons', {})
+        cb = comparisons.get('current_branch', {})
+        print(cb.get('overhead', {}).get('p99', 'N/A'))
         ")" >> "$GITHUB_OUTPUT"
           echo "regression=$(python -c "
         import json

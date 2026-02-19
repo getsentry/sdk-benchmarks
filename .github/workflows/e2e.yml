@@ -36,6 +36,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.apps }}
       sdk-version: ${{ steps.version.outputs.sdk-version }}
+      latest-sdk-version: ${{ steps.latest.outputs.latest-sdk-version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,6 +78,14 @@ jobs:
             echo "sdk-version=$VERSION" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve latest stable SDK version
+        id: latest
+        env:
+          LANGUAGE: ${{ steps.lang.outputs.language }}
+        run: |
+          LATEST=$(bench resolve-version "$LANGUAGE")
+          echo "latest-sdk-version=$LATEST" >> "$GITHUB_OUTPUT"
+
       - name: Build matrix
         id: matrix
         env:
@@ -95,6 +104,7 @@ jobs:
     with:
       app: ${{ matrix.app }}
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
+      latest-sdk-version: ${{ needs.discover.outputs.latest-sdk-version }}
       iterations: ${{ inputs.iterations || 10 }}
       benchmarks-ref: ${{ inputs.benchmarks-ref || 'main' }}
 

@@ -30,26 +30,53 @@ def _status_emoji(summary: dict) -> str:
     return ":white_check_mark:"
 
 
-def _overhead_table(summary: dict) -> list[str]:
-    """Render the overhead table rows for a summary dict."""
-    overhead = summary.get("overhead", {})
-    cis = summary.get("confidence_intervals", {})
-    p_vals = summary.get("p_values", {})
+def _format_overhead_value(comp: dict, metric: str) -> str:
+    """Format a single overhead value with CI for a comparison dict."""
+    overhead = comp.get("overhead", {})
+    cis = comp.get("confidence_intervals", {})
+    value = overhead.get(metric)
+    if not isinstance(value, (int, float)):
+        return "N/A"
+    ci = cis.get(metric)
+    if ci:
+        return f"{value:+.2f}% [{ci['lower']:+.2f}%, {ci['upper']:+.2f}%]"
+    return f"{value:+.2f}%"
 
-    lines = [
-        "| Metric | Overhead | 95% CI | p-value |",
-        "|--------|----------|--------|---------|",
-    ]
+
+def _overhead_table(summary: dict) -> list[str]:
+    """Render the overhead table for a summary with comparisons."""
+    comparisons = summary.get("comparisons", {})
+    has_latest = "latest_release" in comparisons
+    cb = comparisons.get("current_branch", {})
+    lr = comparisons.get("latest_release", {})
+
+    if has_latest:
+        lines = [
+            "| Metric | Latest Release | Current Branch | p-value |",
+            "|--------|---------------|----------------|---------|",
+        ]
+    else:
+        lines = [
+            "| Metric | Overhead | 95% CI | p-value |",
+            "|--------|----------|--------|---------|",
+        ]
 
     for metric in ["p50", "p99", "mean"]:
-        value = overhead.get(metric)
-        if not isinstance(value, (int, float)):
+        cb_overhead = cb.get("overhead", {}).get(metric)
+        if not isinstance(cb_overhead, (int, float)):
             continue
-        ci = cis.get(metric)
-        ci_str = f"[{ci['lower']:+.2f}%, {ci['upper']:+.2f}%]" if ci else "N/A"
-        p_val = p_vals.get(metric)
-        p_str = f"{p_val:.4f}" if p_val is not None else "N/A"
-        lines.append(f"| {metric} | {value:+.2f}% | {ci_str} | {p_str} |")
+
+        cb_p_val = cb.get("p_values", {}).get(metric)
+        p_str = f"{cb_p_val:.4f}" if cb_p_val is not None else "N/A"
+
+        if has_latest:
+            lr_str = _format_overhead_value(lr, metric)
+            cb_str = _format_overhead_value(cb, metric)
+            lines.append(f"| {metric} | {lr_str} | {cb_str} | {p_str} |")
+        else:
+            cb_ci = cb.get("confidence_intervals", {}).get(metric)
+            ci_str = f"[{cb_ci['lower']:+.2f}%, {cb_ci['upper']:+.2f}%]" if cb_ci else "N/A"
+            lines.append(f"| {metric} | {cb_overhead:+.2f}% | {ci_str} | {p_str} |")
 
     return lines
 
@@ -59,6 +86,7 @@ def format_comment(results: dict) -> str:
     summary = results.get("summary", {})
     app = results.get("app", "unknown")
     sdk_version = results.get("sdk_version", "unknown")
+    latest_sdk_version = results.get("latest_sdk_version")
 
     status = _status_label(summary)
 
@@ -66,12 +94,19 @@ def format_comment(results: dict) -> str:
         COMMENT_MARKER,
         f"## SDK Benchmark Results — `{app}`",
         "",
-        f"SDK version: `{sdk_version}`",
+    ]
+
+    if latest_sdk_version:
+        lines.append(f"Current branch: `{sdk_version}` | Latest release: `{latest_sdk_version}`")
+    else:
+        lines.append(f"SDK version: `{sdk_version}`")
+
+    lines.extend([
         f"Status: {status}",
         "",
-        "### Latency Overhead",
+        "### Latency Overhead (vs baseline)",
         "",
-    ]
+    ])
 
     lines.extend(_overhead_table(summary))
 
@@ -105,6 +140,22 @@ def format_comment(results: dict) -> str:
     return "\n".join(lines)
 
 
+def _get_summary_p50(summary: dict) -> str:
+    """Extract p50 overhead string from the current_branch comparison."""
+    comparisons = summary.get("comparisons", {})
+    cb = comparisons.get("current_branch", {})
+    p50 = cb.get("overhead", {}).get("p50")
+    return f"{p50:+.2f}%" if isinstance(p50, (int, float)) else "N/A"
+
+
+def _get_summary_p99(summary: dict) -> str:
+    """Extract p99 overhead string from the current_branch comparison."""
+    comparisons = summary.get("comparisons", {})
+    cb = comparisons.get("current_branch", {})
+    p99 = cb.get("overhead", {}).get("p99")
+    return f"{p99:+.2f}%" if isinstance(p99, (int, float)) else "N/A"
+
+
 def format_combined_comment(results_list: list[dict]) -> str:
     """Format results from multiple apps into a single combined PR comment."""
     lines = [
@@ -123,14 +174,11 @@ def format_combined_comment(results_list: list[dict]) -> str:
         summary = results.get("summary", {})
         app = results.get("app", "unknown")
         sdk_version = results.get("sdk_version", "unknown")
-        overhead = summary.get("overhead", {})
         emoji = _status_emoji(summary)
         status = _status_label(summary)
 
-        p50 = overhead.get("p50")
-        p99 = overhead.get("p99")
-        p50_str = f"{p50:+.2f}%" if isinstance(p50, (int, float)) else "N/A"
-        p99_str = f"{p99:+.2f}%" if isinstance(p99, (int, float)) else "N/A"
+        p50_str = _get_summary_p50(summary)
+        p99_str = _get_summary_p99(summary)
 
         lines.append(f"| `{app}` | `{sdk_version}` | {emoji} {status} | {p50_str} | {p99_str} |")
 
@@ -139,6 +187,7 @@ def format_combined_comment(results_list: list[dict]) -> str:
         summary = results.get("summary", {})
         app = results.get("app", "unknown")
         sdk_version = results.get("sdk_version", "unknown")
+        latest_sdk_version = results.get("latest_sdk_version")
 
         status = _status_label(summary)
         iterations_used = summary.get("iterations_used")
@@ -148,9 +197,14 @@ def format_combined_comment(results_list: list[dict]) -> str:
             "",
             f"### `{app}` — {status}",
             "",
-            f"SDK version: `{sdk_version}`",
-            "",
         ])
+
+        if latest_sdk_version:
+            lines.append(f"Current branch: `{sdk_version}` | Latest release: `{latest_sdk_version}`")
+        else:
+            lines.append(f"SDK version: `{sdk_version}`")
+
+        lines.append("")
 
         lines.extend(_overhead_table(summary))
 

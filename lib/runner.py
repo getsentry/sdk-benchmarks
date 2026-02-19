@@ -198,17 +198,26 @@ def run_benchmark(
     sdk_version: str,
     iterations: int = 10,
     output_dir: str = "results/",
+    latest_sdk_version: str | None = None,
 ) -> dict:
     """Run a full benchmark with adaptive iteration.
 
-    Runs paired baseline/instrumented iterations until the results converge
-    (95% CI half-width for p50 overhead < 2 percentage points) or the maximum
-    number of iterations is reached.
+    Runs baseline, latest_release (optional), and current_branch iterations until
+    the results converge (95% CI half-width for p50 overhead < 2 percentage points)
+    or the maximum number of iterations is reached.
+
+    Args:
+        app: App to benchmark (e.g. 'python/django').
+        sdk_version: SDK version for the current branch.
+        iterations: Maximum number of iterations.
+        output_dir: Directory to write results to.
+        latest_sdk_version: If provided, also benchmark the latest stable release
+            for 3-way comparison (baseline vs latest_release vs current_branch).
 
     Returns the full results dict and writes it to output_dir.
     """
     config = load_config(app)
-    _prepare_sdk_version(config, sdk_version)
+    has_latest_release = latest_sdk_version is not None
 
     results_base = os.path.join(output_dir, f"{config['language']}-{config['framework']}")
     os.makedirs(results_base, exist_ok=True)
@@ -216,26 +225,45 @@ def run_benchmark(
     all_results = {
         "app": app,
         "sdk_version": sdk_version,
+        "latest_sdk_version": latest_sdk_version,
         "config": config,
         "iterations": [],
     }
 
     min_iterations = 3
     for i in range(1, iterations + 1):
-        logger.info("=== Running paired iteration %d/%d ===", i, iterations)
+        variants_in_round = ["baseline"]
+        if has_latest_release:
+            variants_in_round.append("latest_release")
+        variants_in_round.append("current_branch")
 
-        for variant in ("baseline", "instrumented"):
-            logger.info("--- %s iteration %d ---", variant, i)
-            result = run_variant(config, variant, i, results_base)
+        logger.info("=== Running iteration %d/%d (%s) ===", i, iterations, ", ".join(variants_in_round))
+
+        # Baseline — no SDK
+        logger.info("--- baseline iteration %d ---", i)
+        result = run_variant(config, "baseline", i, results_base)
+        all_results["iterations"].append(result)
+
+        # Latest release — instrumented with stable SDK
+        if has_latest_release:
+            logger.info("--- latest_release iteration %d ---", i)
+            _prepare_sdk_version(config, latest_sdk_version)
+            result = run_variant(config, "latest_release", i, results_base)
             all_results["iterations"].append(result)
 
+        # Current branch — instrumented with PR's SDK
+        logger.info("--- current_branch iteration %d ---", i)
+        _prepare_sdk_version(config, sdk_version)
+        result = run_variant(config, "current_branch", i, results_base)
+        all_results["iterations"].append(result)
+
         if i >= min_iterations:
-            summary = _compute_summary(all_results["iterations"])
+            summary = _compute_summary(all_results["iterations"], has_latest_release)
             if summary["converged"]:
                 logger.info("Converged after %d iterations", i)
                 break
     else:
-        summary = _compute_summary(all_results["iterations"])
+        summary = _compute_summary(all_results["iterations"], has_latest_release)
 
     all_results["summary"] = summary
     all_results["load"] = {
@@ -300,25 +328,28 @@ _CONVERGENCE_THRESHOLD = 2.0
 _REGRESSION_THRESHOLD = 2.0
 
 
-def _compute_summary(iterations: list[dict]) -> dict:
-    """Compute overhead summary using per-iteration statistical comparison.
+def _compute_pairwise_overhead(
+    iterations: list[dict], base_variant: str, test_variant: str
+) -> dict:
+    """Compute overhead of test_variant vs base_variant using per-iteration comparison.
 
     For each metric (p50, p99, mean), computes per-iteration overhead percentages,
     then uses a t-distribution CI and one-sample t-test to assess significance.
-    """
-    baseline_by_iter = _extract_per_iteration_latencies(iterations, "baseline")
-    instrumented_by_iter = _extract_per_iteration_latencies(iterations, "instrumented")
 
-    # Find paired iterations (both baseline and instrumented exist)
-    paired_iters = sorted(set(baseline_by_iter) & set(instrumented_by_iter))
+    Returns a dict with overhead, confidence_intervals, p_values, converged, and
+    iterations_used.
+    """
+    base_by_iter = _extract_per_iteration_latencies(iterations, base_variant)
+    test_by_iter = _extract_per_iteration_latencies(iterations, test_variant)
+
+    # Find paired iterations (both variants exist)
+    paired_iters = sorted(set(base_by_iter) & set(test_by_iter))
 
     if not paired_iters:
-        logger.warning("No paired iterations found for summary computation")
         return {
             "overhead": {},
             "confidence_intervals": {},
             "p_values": {},
-            "regression": False,
             "converged": False,
             "iterations_used": 0,
         }
@@ -331,18 +362,18 @@ def _compute_summary(iterations: list[dict]) -> dict:
     for name, p in metrics:
         per_iter_overhead = []
         for i in paired_iters:
-            base_lats = sorted(baseline_by_iter[i])
-            inst_lats = sorted(instrumented_by_iter[i])
+            base_lats = sorted(base_by_iter[i])
+            test_lats = sorted(test_by_iter[i])
 
             if name == "mean":
                 base_val = sum(base_lats) / len(base_lats)
-                inst_val = sum(inst_lats) / len(inst_lats)
+                test_val = sum(test_lats) / len(test_lats)
             else:
                 base_val = _percentile(base_lats, p)
-                inst_val = _percentile(inst_lats, p)
+                test_val = _percentile(test_lats, p)
 
             if base_val > 0:
-                per_iter_overhead.append((inst_val - base_val) / base_val * 100.0)
+                per_iter_overhead.append((test_val - base_val) / base_val * 100.0)
 
         if not per_iter_overhead:
             continue
@@ -376,21 +407,62 @@ def _compute_summary(iterations: list[dict]) -> dict:
         half_width = (p50_ci["upper"] - p50_ci["lower"]) / 2
         converged = bool(half_width < _CONVERGENCE_THRESHOLD)
 
-    # Regression: significant positive overhead above threshold
-    regression = False
-    if converged or len(paired_iters) >= 3:
-        p50_p = p_values.get("p50", 1.0)
-        p50_ci = confidence_intervals.get("p50")
-        if p50_ci and p50_p < 0.05 and p50_ci["lower"] > _REGRESSION_THRESHOLD:
-            regression = True
-
     return {
         "overhead": overhead,
         "confidence_intervals": confidence_intervals,
         "p_values": p_values,
-        "regression": regression,
         "converged": converged,
         "iterations_used": len(paired_iters),
+    }
+
+
+def _compute_summary(
+    iterations: list[dict], has_latest_release: bool = False
+) -> dict:
+    """Compute overhead summary comparing variants against the baseline.
+
+    When has_latest_release is True, computes overhead for both latest_release
+    and current_branch vs baseline, plus regression detection based on whether
+    current_branch is worse than latest_release.
+
+    When False, computes overhead for current_branch vs baseline only.
+    """
+    variants = ["current_branch"]
+    if has_latest_release:
+        variants = ["latest_release", "current_branch"]
+
+    comparisons = {}
+    for variant in variants:
+        comparisons[variant] = _compute_pairwise_overhead(
+            iterations, "baseline", variant
+        )
+
+    # Use current_branch comparison for convergence
+    cb = comparisons["current_branch"]
+    converged = cb["converged"]
+    iterations_used = cb["iterations_used"]
+
+    # Regression detection: is current_branch overhead significantly above threshold?
+    regression = False
+    if converged or iterations_used >= 3:
+        cb_p50_p = cb["p_values"].get("p50", 1.0)
+        cb_p50_ci = cb["confidence_intervals"].get("p50")
+        if cb_p50_ci and cb_p50_p < 0.05 and cb_p50_ci["lower"] > _REGRESSION_THRESHOLD:
+            # If we have latest_release data, only flag regression if current_branch
+            # is worse than latest_release
+            if has_latest_release:
+                lr_overhead = comparisons["latest_release"]["overhead"].get("p50", 0)
+                cb_overhead = cb["overhead"].get("p50", 0)
+                if cb_overhead > lr_overhead:
+                    regression = True
+            else:
+                regression = True
+
+    return {
+        "comparisons": comparisons,
+        "regression": regression,
+        "converged": converged,
+        "iterations_used": iterations_used,
     }
 
 

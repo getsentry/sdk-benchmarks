@@ -17,11 +17,11 @@ services:
   app:
     build:
       context: {{ project_root }}/apps/{{ language }}/{{ framework }}
-      dockerfile: Dockerfile.{{ variant }}
+      dockerfile: Dockerfile.{{ "baseline" if variant == "baseline" else "instrumented" }}
     depends_on:
       postgres:
         condition: service_healthy
-{% if variant == "instrumented" %}
+{% if variant != "baseline" %}
       fakerelay:
         condition: service_started
 {% endif %}
@@ -31,7 +31,7 @@ services:
       DB_NAME: hello_world
       DB_USER: benchmarkdbuser
       DB_PASS: benchmarkdbpass
-{% if variant == "instrumented" %}
+{% if variant != "baseline" %}
       SENTRY_DSN: http://sentry@fakerelay:5000/1
 {% endif %}
 {% if config.resources is defined and config.resources.app is defined %}
@@ -58,7 +58,7 @@ services:
     networks:
       - bench
 
-{% if variant == "instrumented" %}
+{% if variant != "baseline" %}
   fakerelay:
     build:
       context: {{ project_root }}/tools/fakerelay

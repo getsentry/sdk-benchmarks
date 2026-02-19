@@ -128,9 +128,15 @@ def test_post_summary_finds_results():
                 "app": app_dir.replace("-", "/"),
                 "sdk_version": "0.42.0",
                 "summary": {
-                    "overhead": {"p50": 1.0},
-                    "confidence_intervals": {},
-                    "p_values": {},
+                    "comparisons": {
+                        "current_branch": {
+                            "overhead": {"p50": 1.0},
+                            "confidence_intervals": {},
+                            "p_values": {},
+                            "converged": True,
+                            "iterations_used": 5,
+                        },
+                    },
                     "regression": False,
                     "converged": True,
                     "iterations_used": 5,
@@ -140,7 +146,7 @@ def test_post_summary_finds_results():
             with open(os.path.join(tmpdir, app_dir, "results.json"), "w") as f:
                 json.dump(results, f)
 
-        with patch("lib.github.post_comment") as mock_post:
+        with patch("lib.github.post_comment"):
             result = runner.invoke(cli, ["post-summary", "--repo=test/repo", "--pr=1",
                                          f"--results-dir={tmpdir}"])
 

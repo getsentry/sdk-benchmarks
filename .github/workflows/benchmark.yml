@@ -8,8 +8,12 @@ on:
         required: true
         type: string
       sdk-version:
-        description: "SDK version or install specifier to benchmark"
+        description: "SDK version or install specifier to benchmark (current branch)"
         required: true
+        type: string
+      latest-sdk-version:
+        description: "Latest stable SDK version for 3-way comparison"
+        required: false
         type: string
       iterations:
         description: "Maximum number of benchmark iterations (adaptive loop may stop early)"
@@ -62,10 +66,17 @@ jobs:
         env:
           BENCH_APP: ${{ inputs.app }}
           BENCH_SDK_VERSION: ${{ inputs.sdk-version }}
+          BENCH_LATEST_SDK_VERSION: ${{ inputs.latest-sdk-version }}
           BENCH_ITERATIONS: ${{ inputs.iterations }}
         run: |
+          LATEST_FLAG=""
+          if [ -n "$BENCH_LATEST_SDK_VERSION" ]; then
+            LATEST_FLAG="--latest-sdk-version=$BENCH_LATEST_SDK_VERSION"
+          fi
+
           bench run "$BENCH_APP" \
             --sdk-version="$BENCH_SDK_VERSION" \
+            $LATEST_FLAG \
             --iterations="$BENCH_ITERATIONS" \
             --output-dir=results/
 
@@ -91,15 +102,17 @@ jobs:
           import json
           with open('$RESULTS_FILE') as f:
               data = json.load(f)
-          overhead = data.get('summary', {}).get('overhead', {})
-          print(overhead.get('p50', 'N/A'))
+          comparisons = data.get('summary', {}).get('comparisons', {})
+          cb = comparisons.get('current_branch', {})
+          print(cb.get('overhead', {}).get('p50', 'N/A'))
           ")" >> "$GITHUB_OUTPUT"
           echo "overhead-p99=$(python -c "
           import json
           with open('$RESULTS_FILE') as f:
               data = json.load(f)
-          overhead = data.get('summary', {}).get('overhead', {})
-          print(overhead.get('p99', 'N/A'))
+          comparisons = data.get('summary', {}).get('comparisons', {})
+          cb = comparisons.get('current_branch', {})
+          print(cb.get('overhead', {}).get('p99', 'N/A'))
           ")" >> "$GITHUB_OUTPUT"
           echo "regression=$(python -c "
           import json

@@ -7,10 +7,10 @@ from unittest.mock import patch
 import yaml
 
 from lib.runner import (
+    _compute_pairwise_overhead,
     _compute_summary,
     _extract_per_iteration_latencies,
     _parse_mem_usage,
-    _percentile,
     _prepare_sdk_version,
     load_config,
     render_compose,
@@ -47,6 +47,31 @@ class TestRenderCompose:
         rendered = render_compose(self.config, "instrumented", "/tmp/results")
         compose = yaml.safe_load(rendered)
         assert "fakerelay" in compose["services"]
+
+    def test_latest_release_has_fakerelay(self):
+        rendered = render_compose(self.config, "latest_release", "/tmp/results")
+        compose = yaml.safe_load(rendered)
+        assert "fakerelay" in compose["services"]
+
+    def test_current_branch_has_fakerelay(self):
+        rendered = render_compose(self.config, "current_branch", "/tmp/results")
+        compose = yaml.safe_load(rendered)
+        assert "fakerelay" in compose["services"]
+
+    def test_latest_release_uses_instrumented_dockerfile(self):
+        rendered = render_compose(self.config, "latest_release", "/tmp/results")
+        compose = yaml.safe_load(rendered)
+        assert compose["services"]["app"]["build"]["dockerfile"] == "Dockerfile.instrumented"
+
+    def test_current_branch_uses_instrumented_dockerfile(self):
+        rendered = render_compose(self.config, "current_branch", "/tmp/results")
+        compose = yaml.safe_load(rendered)
+        assert compose["services"]["app"]["build"]["dockerfile"] == "Dockerfile.instrumented"
+
+    def test_baseline_uses_baseline_dockerfile(self):
+        rendered = render_compose(self.config, "baseline", "/tmp/results")
+        compose = yaml.safe_load(rendered)
+        assert compose["services"]["app"]["build"]["dockerfile"] == "Dockerfile.baseline"
 
     def test_uses_absolute_project_root(self):
         rendered = render_compose(self.config, "baseline", "/tmp/results")
@@ -108,7 +133,7 @@ class TestExtractPerIterationLatencies:
         iterations = [
             _make_iteration("baseline", 1, [100, 200]),
             _make_iteration("baseline", 2, [150, 250]),
-            _make_iteration("instrumented", 1, [110, 210]),
+            _make_iteration("current_branch", 1, [110, 210]),
         ]
         result = _extract_per_iteration_latencies(iterations, "baseline")
         assert set(result.keys()) == {1, 2}
@@ -118,49 +143,95 @@ class TestExtractPerIterationLatencies:
     def test_filters_by_variant(self):
         iterations = [
             _make_iteration("baseline", 1, [100]),
-            _make_iteration("instrumented", 1, [110]),
+            _make_iteration("current_branch", 1, [110]),
         ]
-        result = _extract_per_iteration_latencies(iterations, "instrumented")
+        result = _extract_per_iteration_latencies(iterations, "current_branch")
         assert set(result.keys()) == {1}
         assert result[1] == [110]
 
 
+class TestComputePairwiseOverhead:
+    def test_basic_overhead(self):
+        iterations = []
+        for i in range(1, 4):
+            iterations.append(_make_iteration("baseline", i, [1000] * 100))
+            iterations.append(_make_iteration("current_branch", i, [1010] * 100))
+
+        result = _compute_pairwise_overhead(iterations, "baseline", "current_branch")
+        assert abs(result["overhead"]["p50"] - 1.0) < 0.5
+        assert result["converged"] is True
+        assert result["iterations_used"] == 3
+
+    def test_no_data(self):
+        result = _compute_pairwise_overhead([], "baseline", "current_branch")
+        assert result["overhead"] == {}
+        assert result["converged"] is False
+        assert result["iterations_used"] == 0
+
+
 class TestComputeSummary:
     def test_no_regression_with_similar_latencies(self):
-        """When baseline and instrumented have similar latencies, no regression."""
+        """When baseline and current_branch have similar latencies, no regression."""
         iterations = []
         for i in range(1, 6):
             iterations.append(_make_iteration("baseline", i, [1000] * 100))
-            iterations.append(_make_iteration("instrumented", i, [1010] * 100))
+            iterations.append(_make_iteration("current_branch", i, [1010] * 100))
 
         summary = _compute_summary(iterations)
         assert summary["regression"] is False
         assert summary["converged"] is True
         assert summary["iterations_used"] == 5
-        # ~1% overhead
-        assert abs(summary["overhead"]["p50"] - 1.0) < 0.5
+        cb = summary["comparisons"]["current_branch"]
+        assert abs(cb["overhead"]["p50"] - 1.0) < 0.5
 
     def test_regression_with_large_overhead(self):
-        """When instrumented is significantly slower, detect regression."""
+        """When current_branch is significantly slower, detect regression."""
         iterations = []
         for i in range(1, 6):
             iterations.append(_make_iteration("baseline", i, [1000] * 100))
             # 5% overhead — above the 2% regression threshold
-            iterations.append(_make_iteration("instrumented", i, [1050] * 100))
+            iterations.append(_make_iteration("current_branch", i, [1050] * 100))
 
         summary = _compute_summary(iterations)
         assert summary["regression"] is True
-        assert summary["overhead"]["p50"] == 5.0
+        assert summary["comparisons"]["current_branch"]["overhead"]["p50"] == 5.0
+
+    def test_three_way_no_regression_when_same_as_latest(self):
+        """No regression when current_branch overhead matches latest_release."""
+        iterations = []
+        for i in range(1, 6):
+            iterations.append(_make_iteration("baseline", i, [1000] * 100))
+            iterations.append(_make_iteration("latest_release", i, [1050] * 100))
+            iterations.append(_make_iteration("current_branch", i, [1050] * 100))
+
+        summary = _compute_summary(iterations, has_latest_release=True)
+        # Both have 5% overhead, but current_branch is NOT worse than latest_release
+        assert summary["regression"] is False
+        assert "latest_release" in summary["comparisons"]
+        assert "current_branch" in summary["comparisons"]
+
+    def test_three_way_regression_when_worse_than_latest(self):
+        """Regression when current_branch is worse than latest_release."""
+        iterations = []
+        for i in range(1, 6):
+            iterations.append(_make_iteration("baseline", i, [1000] * 100))
+            iterations.append(_make_iteration("latest_release", i, [1010] * 100))
+            # Current branch has 5% overhead while latest has 1%
+            iterations.append(_make_iteration("current_branch", i, [1050] * 100))
+
+        summary = _compute_summary(iterations, has_latest_release=True)
+        assert summary["regression"] is True
 
     def test_confidence_intervals_present(self):
         iterations = []
         for i in range(1, 4):
             iterations.append(_make_iteration("baseline", i, [1000] * 50))
-            iterations.append(_make_iteration("instrumented", i, [1020] * 50))
+            iterations.append(_make_iteration("current_branch", i, [1020] * 50))
 
         summary = _compute_summary(iterations)
-        assert "p50" in summary["confidence_intervals"]
-        ci = summary["confidence_intervals"]["p50"]
+        cb = summary["comparisons"]["current_branch"]
+        assert "p50" in cb["confidence_intervals"]
+        ci = cb["confidence_intervals"]["p50"]
         assert "lower" in ci
         assert "upper" in ci
 
@@ -168,21 +239,23 @@ class TestComputeSummary:
         iterations = []
         for i in range(1, 4):
             iterations.append(_make_iteration("baseline", i, [1000] * 50))
-            iterations.append(_make_iteration("instrumented", i, [1020] * 50))
+            iterations.append(_make_iteration("current_branch", i, [1020] * 50))
 
         summary = _compute_summary(iterations)
-        assert "p50" in summary["p_values"]
+        cb = summary["comparisons"]["current_branch"]
+        assert "p50" in cb["p_values"]
 
     def test_single_iteration_shows_overhead_without_ci(self):
         """With 1 paired iteration, overhead is computed but no CI or p-value."""
         iterations = [
             _make_iteration("baseline", 1, [1000] * 50),
-            _make_iteration("instrumented", 1, [1020] * 50),
+            _make_iteration("current_branch", 1, [1020] * 50),
         ]
         summary = _compute_summary(iterations)
-        assert summary["overhead"]["p50"] == 2.0
-        assert summary["confidence_intervals"] == {}
-        assert summary["p_values"] == {}
+        cb = summary["comparisons"]["current_branch"]
+        assert cb["overhead"]["p50"] == 2.0
+        assert cb["confidence_intervals"] == {}
+        assert cb["p_values"] == {}
         assert summary["regression"] is False
         assert summary["converged"] is False
         assert summary["iterations_used"] == 1
@@ -197,7 +270,7 @@ class TestComputeSummary:
         iterations = []
         for i in range(1, 4):
             iterations.append(_make_iteration("baseline", i, [1000] * 100))
-            iterations.append(_make_iteration("instrumented", i, [1010] * 100))
+            iterations.append(_make_iteration("current_branch", i, [1010] * 100))
 
         summary = _compute_summary(iterations)
         assert summary["converged"] is True
@@ -208,7 +281,7 @@ class TestComputeSummary:
         random.seed(42)
         iterations = []
         for i in range(1, 4):
-            # Baseline stable, but instrumented wildly varies per iteration
+            # Baseline stable, but current_branch wildly varies per iteration
             base = [1000] * 100
             if i == 1:
                 inst = [1200] * 100  # +20%
@@ -217,7 +290,7 @@ class TestComputeSummary:
             else:
                 inst = [1100] * 100  # +10%
             iterations.append(_make_iteration("baseline", i, base))
-            iterations.append(_make_iteration("instrumented", i, inst))
+            iterations.append(_make_iteration("current_branch", i, inst))
 
         summary = _compute_summary(iterations)
         # CI is wide due to variance, so should not converge

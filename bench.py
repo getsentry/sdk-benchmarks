@@ -69,17 +69,24 @@ def resolve_version(language):
 
 @cli.command()
 @click.argument("app")
-@click.option("--sdk-version", required=True, help="SDK version to benchmark.")
+@click.option("--sdk-version", required=True, help="SDK version to benchmark (current branch).")
+@click.option("--latest-sdk-version", default=None, help="Latest stable SDK version for 3-way comparison.")
 @click.option("--iterations", default=10, help="Number of iterations to run.")
 @click.option("--output-dir", default="results/", help="Directory to write results to.")
-def run(app, sdk_version, iterations, output_dir):
+def run(app, sdk_version, latest_sdk_version, iterations, output_dir):
     """Run benchmarks for an APP (e.g. 'python/django')."""
     import logging
 
     from lib.runner import run_benchmark
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    results = run_benchmark(app, sdk_version, iterations=iterations, output_dir=output_dir)
+    results = run_benchmark(
+        app,
+        sdk_version,
+        iterations=iterations,
+        output_dir=output_dir,
+        latest_sdk_version=latest_sdk_version,
+    )
     click.echo(f"Benchmark complete. {len(results.get('iterations', []))} iterations recorded.")
 
 

@@ -3,22 +3,43 @@
 from lib.github import COMMENT_MARKER, format_combined_comment, format_comment
 
 
-def _make_results(app="python/django", sdk_version="2.0.0", overhead=None, regression=False,
-                  converged=True, iterations_used=5, p_values=None, cis=None):
-    """Helper to create a results dict with the new summary format."""
-    return {
-        "app": app,
-        "sdk_version": sdk_version,
-        "summary": {
+def _make_results(app="python/django", sdk_version="2.0.0", latest_sdk_version=None,
+                  overhead=None, regression=False, converged=True, iterations_used=5,
+                  p_values=None, cis=None, latest_overhead=None, latest_cis=None,
+                  latest_p_values=None):
+    """Helper to create a results dict with the comparisons-based summary format."""
+    comparisons = {
+        "current_branch": {
             "overhead": overhead or {},
             "confidence_intervals": cis or {},
             "p_values": p_values or {},
+            "converged": converged,
+            "iterations_used": iterations_used,
+        },
+    }
+    if latest_sdk_version is not None:
+        comparisons["latest_release"] = {
+            "overhead": latest_overhead or {},
+            "confidence_intervals": latest_cis or {},
+            "p_values": latest_p_values or {},
+            "converged": converged,
+            "iterations_used": iterations_used,
+        }
+
+    result = {
+        "app": app,
+        "sdk_version": sdk_version,
+        "summary": {
+            "comparisons": comparisons,
             "regression": regression,
             "converged": converged,
             "iterations_used": iterations_used,
         },
         "load": {"rps": 100, "duration": "30s"},
     }
+    if latest_sdk_version is not None:
+        result["latest_sdk_version"] = latest_sdk_version
+    return result
 
 
 class TestFormatComment:
@@ -66,6 +87,32 @@ class TestFormatComment:
         assert "Converged: yes" in body
         body2 = format_comment(_make_results(converged=False))
         assert "Converged: no" in body2
+
+    def test_three_way_shows_both_versions(self):
+        results = _make_results(
+            sdk_version="2.1.0-dev",
+            latest_sdk_version="2.0.0",
+            overhead={"p50": 3.0},
+            latest_overhead={"p50": 2.0},
+        )
+        body = format_comment(results)
+        assert "2.1.0-dev" in body
+        assert "2.0.0" in body
+        assert "Current branch" in body
+        assert "Latest Release" in body
+
+    def test_three_way_table_has_both_columns(self):
+        results = _make_results(
+            sdk_version="2.1.0-dev",
+            latest_sdk_version="2.0.0",
+            overhead={"p50": 3.0, "p99": 5.0},
+            latest_overhead={"p50": 2.0, "p99": 4.0},
+        )
+        body = format_comment(results)
+        assert "Latest Release" in body
+        assert "Current Branch" in body
+        assert "+3.00%" in body
+        assert "+2.00%" in body
 
 
 class TestFormatCombinedComment:
