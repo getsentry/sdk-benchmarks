@@ -14,7 +14,7 @@ endpoints:
 
 load:
   rps: 100
-  duration: 30s
+  duration: 60s
   warmup: 10s
   connections: 10
 
