@@ -114,38 +114,47 @@ def run_iteration(app, sdk_version, latest_sdk_version, iteration, output_dir):
 
 
 @cli.command()
-@click.argument("app")
-@click.option("--sdk-version", required=True, help="SDK version to benchmark (current branch).")
-@click.option("--latest-sdk-version", default=None, help="Latest stable SDK version for 3-way comparison.")
-@click.option("--iterations", default=10, help="Number of parallel iterations to dispatch.")
-@click.option("--timeout", default=1800, help="Overall timeout in seconds (default: 1800).")
-@click.option("--output-dir", default="results/", help="Directory to write results to.")
-@click.option("--benchmarks-ref", default="main", help="Git ref of sdk-benchmarks to use.")
-@click.option("--token", required=True, envvar="BENCHMARKS_TOKEN", help="GitHub token with actions:write scope.")
-@click.option("--caller-run-id", required=True, help="GitHub Actions run ID of the calling workflow.")
-def orchestrate(app, sdk_version, latest_sdk_version, iterations, timeout, output_dir, benchmarks_ref, token, caller_run_id):
-    """Orchestrate parallel benchmark iterations for an APP."""
+@click.option("--iterations-dir", required=True, type=click.Path(exists=True), help="Directory containing iteration-*.json files.")
+@click.option("--output-dir", required=True, help="Directory to write the aggregated results.json to.")
+def aggregate(iterations_dir, output_dir):
+    """Aggregate iteration results into a single results.json with summary statistics."""
     import logging
+    import os
 
-    from lib.orchestrator import orchestrate as do_orchestrate
+    from lib.runner import _compute_summary
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    results = do_orchestrate(
-        app=app,
-        sdk_version=sdk_version,
-        latest_sdk_version=latest_sdk_version,
-        iterations=iterations,
-        timeout=timeout,
-        output_dir=output_dir,
-        benchmarks_ref=benchmarks_ref,
-        token=token,
-        caller_run_id=caller_run_id,
-    )
-    orch = results.get("orchestration", {})
-    click.echo(
-        f"Orchestration complete. "
-        f"{orch.get('successful', 0)}/{orch.get('total_dispatched', 0)} iterations succeeded."
-    )
+
+    iterations_path = Path(iterations_dir)
+    iteration_files = sorted(iterations_path.glob("iteration-*.json"))
+    if not iteration_files:
+        raise click.ClickException(f"No iteration-*.json files found in {iterations_dir}")
+
+    # Load all iteration data
+    all_variant_results = []
+    meta = {}
+    for f in iteration_files:
+        with open(f) as fh:
+            data = json.load(fh)
+        if not meta:
+            meta = {k: v for k, v in data.items() if k != "results" and k != "iteration"}
+        all_variant_results.extend(data.get("results", []))
+
+    has_latest_release = meta.get("latest_sdk_version") is not None
+    summary = _compute_summary(all_variant_results, has_latest_release)
+
+    results = {
+        **meta,
+        "iterations": all_variant_results,
+        "summary": summary,
+    }
+
+    os.makedirs(output_dir, exist_ok=True)
+    results_path = os.path.join(output_dir, "results.json")
+    with open(results_path, "w") as fh:
+        json.dump(results, fh, indent=2, default=str)
+
+    click.echo(f"Aggregated {len(iteration_files)} iterations into {results_path}")
 
 
 @cli.command()

@@ -12,19 +12,10 @@ on:
         required: false
         type: string
       iterations:
-        description: "Maximum number of benchmark iterations"
+        description: "Number of benchmark iterations"
         required: false
         type: number
         default: 10
-      benchmarks-ref:
-        description: "Git ref of sdk-benchmarks to checkout (branch, tag, or SHA)"
-        required: false
-        type: string
-        default: main
-    secrets:
-      BENCHMARKS_TOKEN:
-        description: "GitHub token with actions:write scope on sdk-benchmarks"
-        required: true
   workflow_dispatch:
     inputs:
       language:
@@ -36,16 +27,17 @@ on:
 
 jobs:
   discover:
+    if: github.repository != 'getsentry/sdk-benchmarks'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.apps }}
+      iterations: ${{ steps.iterations.outputs.list }}
       sdk-version: ${{ steps.version.outputs.sdk-version }}
       latest-sdk-version: ${{ steps.latest.outputs.latest-sdk-version }}
     steps:
       - uses: actions/checkout@v4
         with:
           repository: getsentry/sdk-benchmarks
-          ref: ${{ inputs.benchmarks-ref || 'main' }}
 
       - uses: actions/setup-python@v5
         with:
@@ -98,24 +90,31 @@ jobs:
           APPS=$(bench list-apps "$LANGUAGE")
           echo "apps=$APPS" >> "$GITHUB_OUTPUT"
 
+      - name: Build iterations list
+        id: iterations
+        env:
+          ITERATIONS: ${{ inputs.iterations || 10 }}
+        run: |
+          # Generate [1, 2, ..., N] as JSON array
+          LIST=$(python -c "import json; print(json.dumps(list(range(1, int('$ITERATIONS') + 1))))")
+          echo "list=$LIST" >> "$GITHUB_OUTPUT"
+
   bench:
     needs: discover
     strategy:
       fail-fast: false
       matrix:
         app: ${{ fromJSON(needs.discover.outputs.matrix) }}
+        iteration: ${{ fromJSON(needs.discover.outputs.iterations) }}
     uses: ./.github/workflows/benchmark.yml
     with:
       app: ${{ matrix.app }}
       sdk-version: ${{ needs.discover.outputs.sdk-version }}
       latest-sdk-version: ${{ needs.discover.outputs.latest-sdk-version }}
-      iterations: ${{ inputs.iterations || 10 }}
-      benchmarks-ref: ${{ inputs.benchmarks-ref || 'main' }}
-    secrets:
-      BENCHMARKS_TOKEN: ${{ secrets.BENCHMARKS_TOKEN }}
+      iteration: ${{ matrix.iteration }}
 
   summary:
-    needs: bench
+    needs: [discover, bench]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -124,7 +123,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: getsentry/sdk-benchmarks
-          ref: ${{ inputs.benchmarks-ref || 'main' }}
 
       - uses: actions/setup-python@v5
         with:
@@ -140,21 +138,32 @@ jobs:
           path: all-results/
           merge-multiple: false
 
+      - name: Aggregate iteration results per app
+        run: |
+          # Artifacts are at all-results/benchmark-results-{app}-iter{N}/{lang}-{framework}/iteration-{N}.json
+          # Group iteration files by app dir (e.g. go-gin) and aggregate into results.json
+          mkdir -p combined-results
+
+          # Collect all iteration JSON files grouped by app directory
+          for iter_file in $(find all-results/ -name 'iteration-*.json' -type f); do
+            # Extract the lang-framework dir name (e.g. go-gin)
+            app_dir=$(basename "$(dirname "$iter_file")")
+            mkdir -p "per-app/${app_dir}"
+            cp "$iter_file" "per-app/${app_dir}/"
+          done
+
+          # Aggregate each app's iterations into a single results.json
+          for app_dir in per-app/*/; do
+            app_name=$(basename "$app_dir")
+            bench aggregate \
+              --iterations-dir="$app_dir" \
+              --output-dir="combined-results/${app_name}"
+          done
+
       - name: Post combined PR comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Each artifact extracts to all-results/<artifact-name>/...
-          # The results.json files are at <artifact>/*/results.json (depth 2)
-          # Flatten them into a single directory structure for post-summary
-          mkdir -p combined-results
-          for results_file in $(find all-results/ -maxdepth 3 -name 'results.json' -path '*/results.json' ! -path '*/iter-*/results.json'); do
-            # Extract app dir name (e.g. go-gin) from the path
-            app_dir=$(basename "$(dirname "$results_file")")
-            mkdir -p "combined-results/${app_dir}"
-            cp "$results_file" "combined-results/${app_dir}/results.json"
-          done
-
           bench post-summary \
             --repo="${{ github.repository }}" \
             --pr="${{ github.event.pull_request.number }}" \
