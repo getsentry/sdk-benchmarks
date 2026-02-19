@@ -25,9 +25,9 @@ on:
         type: string
         default: main
     outputs:
-      overhead-p50:
+      overhead-p95:
         description: "P50 latency overhead percentage"
-        value: ${{ jobs.bench.outputs.overhead-p50 }}
+        value: ${{ jobs.bench.outputs.overhead-p95 }}
       overhead-p99:
         description: "P99 latency overhead percentage"
         value: ${{ jobs.bench.outputs.overhead-p99 }}
@@ -39,7 +39,7 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     outputs:
-      overhead-p50: ${{ steps.results.outputs.overhead-p50 }}
+      overhead-p95: ${{ steps.results.outputs.overhead-p95 }}
       overhead-p99: ${{ steps.results.outputs.overhead-p99 }}
       regression: ${{ steps.results.outputs.regression }}
     steps:
@@ -97,7 +97,7 @@ jobs:
         if: steps.find-results.outputs.path != ''
         run: |
           RESULTS_FILE="${{ steps.find-results.outputs.path }}"
-          echo "overhead-p50=$(python -c "
+          echo "overhead-p95=$(python -c "
           import json
           with open('$RESULTS_FILE') as f:
               data = json.load(f)
@@ -105,13 +105,12 @@ jobs:
           cb = [r for r in results if r.get('variant') == 'current_branch']
           bl = [r for r in results if r.get('variant') == 'baseline']
           if cb and bl:
-              cb_lat = [r['latency'] for r in cb[0].get('vegeta_results', [])]
-              bl_lat = [r['latency'] for r in bl[0].get('vegeta_results', [])]
+              cb_lat = sorted([r['latency'] for r in cb[0].get('vegeta_results', [])])
+              bl_lat = sorted([r['latency'] for r in bl[0].get('vegeta_results', [])])
               if bl_lat:
-                  import statistics
-                  cb_p50 = statistics.median(cb_lat)
-                  bl_p50 = statistics.median(bl_lat)
-                  print(f'{((cb_p50 / bl_p50) - 1) * 100:.2f}')
+                  cb_p95 = cb_lat[int(len(cb_lat) * 0.95)]
+                  bl_p95 = bl_lat[int(len(bl_lat) * 0.95)]
+                  print(f'{((cb_p95 / bl_p95) - 1) * 100:.2f}')
               else:
                   print('N/A')
           else:

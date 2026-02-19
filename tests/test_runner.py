@@ -158,7 +158,7 @@ class TestComputePairwiseOverhead:
             iterations.append(_make_iteration("current_branch", i, [1010] * 100))
 
         result = _compute_pairwise_overhead(iterations, "baseline", "current_branch")
-        assert abs(result["overhead"]["p50"] - 1.0) < 0.5
+        assert abs(result["overhead"]["p95"] - 1.0) < 0.5
         assert result["converged"] is True
         assert result["iterations_used"] == 3
 
@@ -182,7 +182,7 @@ class TestComputeSummary:
         assert summary["converged"] is True
         assert summary["iterations_used"] == 5
         cb = summary["comparisons"]["current_branch"]
-        assert abs(cb["overhead"]["p50"] - 1.0) < 0.5
+        assert abs(cb["overhead"]["p95"] - 1.0) < 0.5
 
     def test_regression_with_large_overhead(self):
         """When current_branch is significantly slower, detect regression."""
@@ -194,7 +194,7 @@ class TestComputeSummary:
 
         summary = _compute_summary(iterations)
         assert summary["regression"] is True
-        assert summary["comparisons"]["current_branch"]["overhead"]["p50"] == 5.0
+        assert summary["comparisons"]["current_branch"]["overhead"]["p95"] == 5.0
 
     def test_three_way_no_regression_when_same_as_latest(self):
         """No regression when current_branch overhead matches latest_release."""
@@ -230,8 +230,8 @@ class TestComputeSummary:
 
         summary = _compute_summary(iterations)
         cb = summary["comparisons"]["current_branch"]
-        assert "p50" in cb["confidence_intervals"]
-        ci = cb["confidence_intervals"]["p50"]
+        assert "p95" in cb["confidence_intervals"]
+        ci = cb["confidence_intervals"]["p95"]
         assert "lower" in ci
         assert "upper" in ci
 
@@ -243,7 +243,7 @@ class TestComputeSummary:
 
         summary = _compute_summary(iterations)
         cb = summary["comparisons"]["current_branch"]
-        assert "p50" in cb["p_values"]
+        assert "p95" in cb["p_values"]
 
     def test_single_iteration_shows_overhead_without_ci(self):
         """With 1 paired iteration, overhead is computed but no CI or p-value."""
@@ -253,7 +253,7 @@ class TestComputeSummary:
         ]
         summary = _compute_summary(iterations)
         cb = summary["comparisons"]["current_branch"]
-        assert cb["overhead"]["p50"] == 2.0
+        assert cb["overhead"]["p95"] == 2.0
         assert cb["confidence_intervals"] == {}
         assert cb["p_values"] == {}
         assert summary["regression"] is False

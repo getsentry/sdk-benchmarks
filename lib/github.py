@@ -52,8 +52,8 @@ def _overhead_table(summary: dict) -> list[str]:
 
     if has_latest:
         lines = [
-            "| Metric | Latest Release | Current Branch | p-value |",
-            "|--------|---------------|----------------|---------|",
+            "| Metric | Latest Release | Current Branch | Diff | p-value |",
+            "|--------|---------------|----------------|------|---------|",
         ]
     else:
         lines = [
@@ -61,7 +61,7 @@ def _overhead_table(summary: dict) -> list[str]:
             "|--------|----------|--------|---------|",
         ]
 
-    for metric in ["p50", "p99", "mean"]:
+    for metric in ["p95", "p99"]:
         cb_overhead = cb.get("overhead", {}).get(metric)
         if not isinstance(cb_overhead, (int, float)):
             continue
@@ -72,7 +72,14 @@ def _overhead_table(summary: dict) -> list[str]:
         if has_latest:
             lr_str = _format_overhead_value(lr, metric)
             cb_str = _format_overhead_value(cb, metric)
-            lines.append(f"| {metric} | {lr_str} | {cb_str} | {p_str} |")
+            lr_val = lr.get("overhead", {}).get(metric)
+            cb_val = cb_overhead
+            if isinstance(lr_val, (int, float)) and isinstance(cb_val, (int, float)):
+                diff = cb_val - lr_val
+                diff_str = f"{diff:+.2f}pp"
+            else:
+                diff_str = "N/A"
+            lines.append(f"| {metric} | {lr_str} | {cb_str} | {diff_str} | {p_str} |")
         else:
             cb_ci = cb.get("confidence_intervals", {}).get(metric)
             ci_str = f"[{cb_ci['lower']:+.2f}%, {cb_ci['upper']:+.2f}%]" if cb_ci else "N/A"
@@ -140,12 +147,12 @@ def format_comment(results: dict) -> str:
     return "\n".join(lines)
 
 
-def _get_summary_p50(summary: dict) -> str:
-    """Extract p50 overhead string from the current_branch comparison."""
+def _get_summary_p95(summary: dict) -> str:
+    """Extract p95 overhead string from the current_branch comparison."""
     comparisons = summary.get("comparisons", {})
     cb = comparisons.get("current_branch", {})
-    p50 = cb.get("overhead", {}).get("p50")
-    return f"{p50:+.2f}%" if isinstance(p50, (int, float)) else "N/A"
+    p95 = cb.get("overhead", {}).get("p95")
+    return f"{p95:+.2f}%" if isinstance(p95, (int, float)) else "N/A"
 
 
 def _get_summary_p99(summary: dict) -> str:
@@ -166,7 +173,7 @@ def format_combined_comment(results_list: list[dict]) -> str:
 
     # Summary table
     lines.extend([
-        "| App | SDK Version | Status | p50 Overhead | p99 Overhead |",
+        "| App | SDK Version | Status | p95 Overhead | p99 Overhead |",
         "|-----|-------------|--------|-------------|-------------|",
     ])
 
@@ -177,10 +184,10 @@ def format_combined_comment(results_list: list[dict]) -> str:
         emoji = _status_emoji(summary)
         status = _status_label(summary)
 
-        p50_str = _get_summary_p50(summary)
+        p95_str = _get_summary_p95(summary)
         p99_str = _get_summary_p99(summary)
 
-        lines.append(f"| `{app}` | `{sdk_version}` | {emoji} {status} | {p50_str} | {p99_str} |")
+        lines.append(f"| `{app}` | `{sdk_version}` | {emoji} {status} | {p95_str} | {p99_str} |")
 
     # Per-app details
     for results in results_list:

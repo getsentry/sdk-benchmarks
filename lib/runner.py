@@ -273,7 +273,7 @@ def run_benchmark(
     """Run a full benchmark with adaptive iteration.
 
     Runs baseline, latest_release (optional), and current_branch iterations until
-    the results converge (95% CI half-width for p50 overhead < 2 percentage points)
+    the results converge (95% CI half-width for p95 overhead < 2 percentage points)
     or the maximum number of iterations is reached.
 
     Args:
@@ -379,7 +379,7 @@ def _extract_per_iteration_latencies(
     return by_iter
 
 
-# Convergence threshold: 95% CI half-width for p50 overhead must be below this
+# Convergence threshold: 95% CI half-width for p95 overhead must be below this
 # (in absolute percentage points).
 _CONVERGENCE_THRESHOLD = 2.0
 
@@ -413,7 +413,7 @@ def _compute_pairwise_overhead(
             "iterations_used": 0,
         }
 
-    metrics = [("p50", 50), ("p99", 99), ("mean", None)]
+    metrics = [("p95", 95), ("p99", 99)]
     overhead = {}
     confidence_intervals = {}
     p_values = {}
@@ -424,12 +424,8 @@ def _compute_pairwise_overhead(
             base_lats = sorted(base_by_iter[i])
             test_lats = sorted(test_by_iter[i])
 
-            if name == "mean":
-                base_val = sum(base_lats) / len(base_lats)
-                test_val = sum(test_lats) / len(test_lats)
-            else:
-                base_val = _percentile(base_lats, p)
-                test_val = _percentile(test_lats, p)
+            base_val = _percentile(base_lats, p)
+            test_val = _percentile(test_lats, p)
 
             if base_val > 0:
                 per_iter_overhead.append((test_val - base_val) / base_val * 100.0)
@@ -459,11 +455,11 @@ def _compute_pairwise_overhead(
         t_stat, p_val = stats.ttest_1samp(per_iter_overhead, 0.0)
         p_values[name] = round(p_val, 4)
 
-    # Convergence: check if p50 CI half-width is narrow enough
+    # Convergence: check if p95 CI half-width is narrow enough
     converged = False
-    p50_ci = confidence_intervals.get("p50")
-    if p50_ci:
-        half_width = (p50_ci["upper"] - p50_ci["lower"]) / 2
+    p95_ci = confidence_intervals.get("p95")
+    if p95_ci:
+        half_width = (p95_ci["upper"] - p95_ci["lower"]) / 2
         converged = bool(half_width < _CONVERGENCE_THRESHOLD)
 
     return {
@@ -512,21 +508,21 @@ def _compute_summary(
                 iterations, "latest_release", "current_branch"
             )
             comparisons["cb_vs_latest"] = direct
-            d_p50_p = direct["p_values"].get("p50", 1.0)
-            d_p50_ci = direct["confidence_intervals"].get("p50")
+            d_p95_p = direct["p_values"].get("p95", 1.0)
+            d_p95_ci = direct["confidence_intervals"].get("p95")
             if (
-                d_p50_ci
-                and d_p50_p < 0.05
-                and d_p50_ci["lower"] > _REGRESSION_THRESHOLD
+                d_p95_ci
+                and d_p95_p < 0.05
+                and d_p95_ci["lower"] > _REGRESSION_THRESHOLD
             ):
                 regression = True
         else:
-            cb_p50_p = cb["p_values"].get("p50", 1.0)
-            cb_p50_ci = cb["confidence_intervals"].get("p50")
+            cb_p95_p = cb["p_values"].get("p95", 1.0)
+            cb_p95_ci = cb["confidence_intervals"].get("p95")
             if (
-                cb_p50_ci
-                and cb_p50_p < 0.05
-                and cb_p50_ci["lower"] > _REGRESSION_THRESHOLD
+                cb_p95_ci
+                and cb_p95_p < 0.05
+                and cb_p95_ci["lower"] > _REGRESSION_THRESHOLD
             ):
                 regression = True
 

@@ -53,12 +53,12 @@ class TestFormatComment:
 
     def test_shows_overhead_with_ci(self):
         results = _make_results(
-            overhead={"p50": 3.5, "p99": 7.2},
+            overhead={"p95": 3.5, "p99": 7.2},
             cis={
-                "p50": {"lower": 2.0, "upper": 5.0},
+                "p95": {"lower": 2.0, "upper": 5.0},
                 "p99": {"lower": 4.0, "upper": 10.4},
             },
-            p_values={"p50": 0.01, "p99": 0.03},
+            p_values={"p95": 0.01, "p99": 0.03},
         )
         body = format_comment(results)
         assert "+3.50%" in body
@@ -92,8 +92,8 @@ class TestFormatComment:
         results = _make_results(
             sdk_version="2.1.0-dev",
             latest_sdk_version="2.0.0",
-            overhead={"p50": 3.0},
-            latest_overhead={"p50": 2.0},
+            overhead={"p95": 3.0},
+            latest_overhead={"p95": 2.0},
         )
         body = format_comment(results)
         assert "2.1.0-dev" in body
@@ -105,14 +105,17 @@ class TestFormatComment:
         results = _make_results(
             sdk_version="2.1.0-dev",
             latest_sdk_version="2.0.0",
-            overhead={"p50": 3.0, "p99": 5.0},
-            latest_overhead={"p50": 2.0, "p99": 4.0},
+            overhead={"p95": 3.0, "p99": 5.0},
+            latest_overhead={"p95": 2.0, "p99": 4.0},
         )
         body = format_comment(results)
         assert "Latest Release" in body
         assert "Current Branch" in body
+        assert "Diff" in body
         assert "+3.00%" in body
         assert "+2.00%" in body
+        # Diff column: 3.0 - 2.0 = +1.00pp for p95, 5.0 - 4.0 = +1.00pp for p99
+        assert "+1.00pp" in body
 
 
 class TestFormatCombinedComment:
@@ -125,9 +128,9 @@ class TestFormatCombinedComment:
 
     def test_includes_all_apps(self):
         results_list = [
-            _make_results(app="go/gin", overhead={"p50": 1.0, "p99": 2.0}),
-            _make_results(app="go/echo", overhead={"p50": 0.5, "p99": 1.5}),
-            _make_results(app="go/net-http", overhead={"p50": 0.8, "p99": 1.2}),
+            _make_results(app="go/gin", overhead={"p95": 1.0, "p99": 2.0}),
+            _make_results(app="go/echo", overhead={"p95": 0.5, "p99": 1.5}),
+            _make_results(app="go/net-http", overhead={"p95": 0.8, "p99": 1.2}),
         ]
         body = format_combined_comment(results_list)
         assert "go/gin" in body
@@ -136,7 +139,7 @@ class TestFormatCombinedComment:
 
     def test_summary_table(self):
         results_list = [
-            _make_results(app="go/gin", overhead={"p50": 1.5, "p99": 3.0}),
+            _make_results(app="go/gin", overhead={"p95": 1.5, "p99": 3.0}),
         ]
         body = format_combined_comment(results_list)
         assert "+1.50%" in body

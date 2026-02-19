@@ -130,7 +130,7 @@ def test_post_summary_finds_results():
                 "summary": {
                     "comparisons": {
                         "current_branch": {
-                            "overhead": {"p50": 1.0},
+                            "overhead": {"p95": 1.0},
                             "confidence_intervals": {},
                             "p_values": {},
                             "converged": True,
